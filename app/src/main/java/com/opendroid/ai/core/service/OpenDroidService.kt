@@ -87,9 +87,13 @@ class OpenDroidService : Service() {
         speechRecognitionEngine = SpeechRecognitionEngine(this)
         textToSpeechEngine = TextToSpeechEngine(this, settingsRepository)
 
-        // Bind Agent Loop TTS
+        // Bind Agent Loop TTS: speak only when the user spoke by voice
         agentLoop.onSpeakCallback = { text ->
-            textToSpeechEngine.speak(text)
+            if (agentLoop.speakReplies) {
+                textToSpeechEngine.speak(text)
+            } else if (agentLoop.agentState.value is AgentState.Speaking) {
+                agentLoop.setAgentState(AgentState.Idle)
+            }
         }
         // Stop and Clear cancel the task; speech already playing or still being fetched
         // must stop with it.
@@ -138,13 +142,15 @@ class OpenDroidService : Service() {
                     // Armed with the prompt's own id before it is queued, so only the
                     // prompt finishing opens the mic, never an earlier utterance.
                     val promptId = UUID.randomUUID().toString()
-                    if (!showFloatingButton) {
+                    if (!showFloatingButton && agentLoop.speakReplies) {
                         pendingApprovalListen.arm(state.plan.planId)
                         approvalListenGate.armFor(promptId)
                     } else {
                         approvalListenGate.disarm()
                     }
-                    textToSpeechEngine.speak(PlanApprovalSummary.spokenPrompt(state.plan), utteranceId = promptId)
+                    if (agentLoop.speakReplies) {
+                        textToSpeechEngine.speak(PlanApprovalSummary.spokenPrompt(state.plan), utteranceId = promptId)
+                    }
                 }
             }
         }
@@ -171,6 +177,7 @@ class OpenDroidService : Service() {
 
     private fun onWakeWordHeard() {
         wakeWordDetector.stopListening()
+        agentLoop.speakReplies = true
         textToSpeechEngine.speak("Yes sir?")
         serviceScope.launch {
             delay(1800)
@@ -206,6 +213,7 @@ class OpenDroidService : Service() {
         // Start speech recognizer for query input
         speechRecognitionEngine.startListening(
             onResult = { query ->
+                agentLoop.speakReplies = true
                 agentLoop.processQuery(query, this)
                 // Resume wake word detection only if floating button is disabled
                 if (!showFloatingButton) {
