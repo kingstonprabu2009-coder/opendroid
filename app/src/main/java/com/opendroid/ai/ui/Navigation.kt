@@ -59,12 +59,12 @@ object OpenDroidRoutes {
 }
 
 /**
- * Leaves the splash screen for onboarding or the main dashboard, dropping splash from the
+ * Leaves the splash screen for the main dashboard, dropping splash from the
  * back stack so system back from the first real screen exits the app instead of replaying it.
+ * Onboarding (name/DOB) is skipped: always go straight to MAIN.
  */
 fun NavHostController.navigateAfterSplash(isOnboardingCompleted: Boolean) {
-    val destination = if (isOnboardingCompleted) OpenDroidRoutes.MAIN else OpenDroidRoutes.ONBOARDING
-    navigate(destination) {
+    navigate(OpenDroidRoutes.MAIN) {
         popUpTo(OpenDroidRoutes.SPLASH) { inclusive = true }
     }
 }
