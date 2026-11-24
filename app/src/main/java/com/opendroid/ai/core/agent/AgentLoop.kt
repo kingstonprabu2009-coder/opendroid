@@ -516,6 +516,7 @@ class AgentLoop @Inject constructor(
 
     // Speak callback to be implemented by TTS service
     var onSpeakCallback: ((String) -> Unit)? = null
+@Volatile var speakReplies: Boolean = false
 
     // Silences speech in progress; set by the TTS service and called from cancelCurrentTask.
     var onStopSpeakingCallback: (() -> Unit)? = null
