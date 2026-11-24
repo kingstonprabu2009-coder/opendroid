@@ -293,6 +293,7 @@ class ChatViewModelTaskAttributionTest {
         override val chatError = MutableStateFlow<ChatErrorUiState?>(null)
         override val activeTaskSessionId = MutableStateFlow<String?>(null)
         override val proposedPlanSessionId = MutableStateFlow<String?>(null)
+override var speakReplies: Boolean = false
 
         var cancelCalls = 0
         var lastExplicitSessionId: String? = null
