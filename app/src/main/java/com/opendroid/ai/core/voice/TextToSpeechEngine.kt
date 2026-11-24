@@ -72,9 +72,18 @@ class TextToSpeechEngine(
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            val result = tts?.setLanguage(Locale.getDefault())
+            val engine = tts ?: return
+            // Jarvis speaks Tamil (India). If the Tamil voice data is missing on this phone,
+            // fall back to the phone's default language so speech never goes silent.
+            var result = engine.setLanguage(Locale.forLanguageTag("ta-IN"))
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                result = engine.setLanguage(Locale.getDefault())
+            }
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isInitialized = true
+                // Slightly deeper and calmer, closer to a male Jarvis style.
+                engine.setPitch(0.8f)
+                engine.setSpeechRate(0.95f)
             }
         }
     }
@@ -236,3 +245,4 @@ class TextToSpeechEngine(
         const val CLIP_SUFFIX = ".mp3"
     }
 }
+// END
