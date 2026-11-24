@@ -17,6 +17,15 @@ class WakeWordDetector(private val context: Context) {
     private var onWakeWordDetectedCallback: (() -> Unit)? = null
     private var isListening = false
 
+    private val wakeWords = listOf(
+        "jarvis", "jarvish", "jarvas", "charvis", "service",
+        "ஜார்விஸ்", "ஜார்விஸ", "ஜார்வீஸ்"
+    )
+
+    private fun isWakeWord(text: String): Boolean {
+        return wakeWords.any { text.contains(it, ignoreCase = true) }
+    }
+
     private val handler = Handler(Looper.getMainLooper())
     private val restartRunnable = Runnable {
         startSpeechListening()
@@ -44,7 +53,6 @@ class WakeWordDetector(private val context: Context) {
     private fun startSpeechListening() {
         if (!isListening) return
 
-        // Clean up previous instance before creating a new one
         cleanupRecognizer()
 
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
@@ -65,9 +73,8 @@ class WakeWordDetector(private val context: Context) {
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
-            
+
             override fun onError(error: Int) {
-                // Restart listening loop on error or timeout after a delay
                 scheduleRestart()
             }
 
@@ -75,7 +82,7 @@ class WakeWordDetector(private val context: Context) {
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (matches != null) {
                     for (match in matches) {
-                        if (match.contains("opendroid", ignoreCase = true) || match.contains("open droid", ignoreCase = true)) {
+                        if (isWakeWord(match)) {
                             triggerWakeWord()
                             break
                         }
@@ -88,7 +95,7 @@ class WakeWordDetector(private val context: Context) {
                 val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (matches != null) {
                     for (match in matches) {
-                        if (match.contains("opendroid", ignoreCase = true) || match.contains("open droid", ignoreCase = true)) {
+                        if (isWakeWord(match)) {
                             triggerWakeWord()
                             break
                         }
@@ -113,7 +120,6 @@ class WakeWordDetector(private val context: Context) {
     private fun scheduleRestart() {
         handler.removeCallbacks(restartRunnable)
         if (isListening) {
-            // Post restart with 1000ms delay to let the audio system settle and prevent rapid flickering/beeping
             handler.postDelayed(restartRunnable, 1000)
         }
     }
