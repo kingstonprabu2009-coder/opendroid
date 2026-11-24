@@ -136,8 +136,8 @@ private fun IntroductionPanel(
             contentAlignment = Alignment.Center
         ) {
             Image(
-                painter = painterResource(id = com.opendroid.ai.R.drawable.bot),
-                contentDescription = "OpenDroid Bot Avatar",
+                painter = painterResource(id = com.opendroid.ai.R.drawable.jarvis_icon_fg),
+                contentDescription = "Jarvis Avatar",
                 modifier = Modifier.size(120.dp)
             )
         }
@@ -145,7 +145,7 @@ private fun IntroductionPanel(
         Spacer(modifier = Modifier.height(24.dp))
 
         Text(
-            text = "Hello! I am OpenDroid",
+            text = "Hello! I am Jarvis",
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
             color = TextPrimary
@@ -154,7 +154,7 @@ private fun IntroductionPanel(
         Spacer(modifier = Modifier.height(12.dp))
 
         Text(
-            text = "Your open autonomous device assistant. Please introduce yourself so I can serve you personally.",
+            text = "At your service, Sir. Please introduce yourself so I can serve you personally.",
             fontSize = 14.sp,
             color = TextSecondary,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center
@@ -326,8 +326,8 @@ fun PermissionPromptPanel(
             contentAlignment = Alignment.Center
         ) {
             Image(
-                painter = painterResource(id = com.opendroid.ai.R.drawable.bot),
-                contentDescription = "OpenDroid Bot Avatar",
+                painter = painterResource(id = com.opendroid.ai.R.drawable.jarvis_icon_fg),
+                contentDescription = "Jarvis Avatar",
                 modifier = Modifier.size(120.dp)
             )
         }
@@ -372,3 +372,4 @@ fun PermissionPromptPanel(
         }
     }
 }
+// END
