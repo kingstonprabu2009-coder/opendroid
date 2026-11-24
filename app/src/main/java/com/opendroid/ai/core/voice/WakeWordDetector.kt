@@ -9,7 +9,7 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import java.util.Locale
+import android.widget.Toast
 
 class WakeWordDetector(private val context: Context) {
 
@@ -17,11 +17,18 @@ class WakeWordDetector(private val context: Context) {
     private var intent: Intent? = null
     private var onWakeWordDetectedCallback: (() -> Unit)? = null
     private var isListening = false
-    private var beepMuted = false
+    private var lastToastError = -1
     private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
+    // Only these two streams are muted for the beep. Music/YouTube/TTS are NOT touched.
+    private val beepStreams = intArrayOf(
+        AudioManager.STREAM_NOTIFICATION,
+        AudioManager.STREAM_SYSTEM
+    )
+    private val mutedByUs = mutableSetOf<Int>()
+
     private val wakeWords = listOf(
-        "jarvis", "jarvish", "jarvas", "charvis", "service",
+        "jarvis", "jarvish", "jarvas", "charvis", "jarwis", "jar vis",
         "ஜார்விஸ்", "ஜார்விஸ", "ஜார்வீஸ்"
     )
 
@@ -41,31 +48,52 @@ class WakeWordDetector(private val context: Context) {
     private fun initializeRecognizer() {
         intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault())
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, "en-IN")
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, "en-IN")
+            putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, context.packageName)
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 5)
             putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, true)
         }
     }
 
+    private fun debugToast(text: String) {
+        try {
+            Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+        }
+    }
+
+    private fun errorName(error: Int): String = when (error) {
+        SpeechRecognizer.ERROR_AUDIO -> "audio"
+        SpeechRecognizer.ERROR_CLIENT -> "client"
+        SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "mic permission"
+        SpeechRecognizer.ERROR_NETWORK -> "network"
+        SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "network timeout"
+        SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "busy"
+        SpeechRecognizer.ERROR_SERVER -> "server"
+        else -> "code $error"
+    }
+
     private fun muteBeep() {
-        if (beepMuted) return
-        try {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
-        } catch (e: Exception) {}
-        try {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
-        } catch (e: Exception) {}
-        beepMuted = true
+        for (stream in beepStreams) {
+            try {
+                if (!audioManager.isStreamMute(stream)) {
+                    audioManager.adjustStreamVolume(stream, AudioManager.ADJUST_MUTE, 0)
+                    mutedByUs.add(stream)
+                }
+            } catch (e: Exception) {
+            }
+        }
     }
 
     private fun unmuteBeep() {
-        if (!beepMuted) return
-        try {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
-        } catch (e: Exception) {}
-        try {
-            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
-        } catch (e: Exception) {}
-        beepMuted = false
+        for (stream in mutedByUs.toList()) {
+            try {
+                audioManager.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, 0)
+            } catch (e: Exception) {
+            }
+        }
+        mutedByUs.clear()
     }
 
     fun startListening(onWakeWordDetected: () -> Unit) {
@@ -85,11 +113,15 @@ class WakeWordDetector(private val context: Context) {
             try {
                 speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
             } catch (e: Exception) {
-                scheduleRestart()
+                scheduleRestart(3000L)
                 return
             }
         } else {
-            scheduleRestart()
+            if (lastToastError != -99) {
+                lastToastError = -99
+                debugToast("Jarvis wake error: no speech service")
+            }
+            scheduleRestart(3000L)
             return
         }
 
@@ -101,7 +133,13 @@ class WakeWordDetector(private val context: Context) {
             override fun onEndOfSpeech() {}
 
             override fun onError(error: Int) {
-                scheduleRestart()
+                val normal = error == SpeechRecognizer.ERROR_NO_MATCH ||
+                    error == SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                if (!normal && error != lastToastError) {
+                    lastToastError = error
+                    debugToast("Jarvis wake error: ${errorName(error)}")
+                }
+                scheduleRestart(if (normal) 1000L else 3000L)
             }
 
             override fun onResults(results: Bundle?) {
@@ -109,12 +147,12 @@ class WakeWordDetector(private val context: Context) {
                 if (matches != null) {
                     for (match in matches) {
                         if (isWakeWord(match)) {
-                            triggerWakeWord()
-                            break
+                            triggerWakeWord(match)
+                            return
                         }
                     }
                 }
-                scheduleRestart()
+                scheduleRestart(1000L)
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
@@ -122,8 +160,8 @@ class WakeWordDetector(private val context: Context) {
                 if (matches != null) {
                     for (match in matches) {
                         if (isWakeWord(match)) {
-                            triggerWakeWord()
-                            break
+                            triggerWakeWord(match)
+                            return
                         }
                     }
                 }
@@ -135,29 +173,33 @@ class WakeWordDetector(private val context: Context) {
         try {
             speechRecognizer?.startListening(intent)
         } catch (e: Exception) {
-            scheduleRestart()
+            scheduleRestart(3000L)
         }
     }
 
-    private fun triggerWakeWord() {
+    private fun triggerWakeWord(heard: String) {
+        if (!isListening) return
         unmuteBeep()
+        debugToast("Heard: $heard")
         onWakeWordDetectedCallback?.invoke()
     }
 
-    private fun scheduleRestart() {
+    private fun scheduleRestart(delayMs: Long = 1000L) {
         handler.removeCallbacks(restartRunnable)
         if (isListening) {
-            handler.postDelayed(restartRunnable, 1000)
+            handler.postDelayed(restartRunnable, delayMs)
         }
     }
 
     private fun cleanupRecognizer() {
         try {
             speechRecognizer?.stopListening()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+        }
         try {
             speechRecognizer?.destroy()
-        } catch (e: Exception) {}
+        } catch (e: Exception) {
+        }
         speechRecognizer = null
     }
 
