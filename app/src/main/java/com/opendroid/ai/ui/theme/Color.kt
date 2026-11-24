@@ -8,7 +8,7 @@ import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.ui.graphics.Color
 
 /**
- * OpenDroid color palette — resolved via CompositionLocal so all screens
+ * Jarvis color palette — resolved via CompositionLocal so all screens
  * automatically adapt to the active theme (light / dark).
  */
 data class OpenDroidColors(
@@ -28,19 +28,19 @@ data class OpenDroidColors(
     val isDark: Boolean
 )
 
-// ── Dark palette: Classic Pure Black (#000000) ───────────────
+// ── Dark palette: Jarvis neon-blue on black ───────────────
 val DarkPalette = OpenDroidColors(
-    background = Color(0xFF000000),      // Classic pure OLED black
-    surface = Color(0xFF0A0A0A),         // Deep charcoal surface
-    cardBackground = Color(0xFF141416),  // Elevated card surface
-    borderColor = Color(0xFF27272A),     // Zinc 800 hairline border
-    textPrimary = Color(0xFFFFFFFF),     // Pure white
-    textSecondary = Color(0xFFA1A1AA),   // Zinc 400 silver
-    accentNeonGreen = Color(0xFFFFFFFF), // High-contrast monochrome (replaces green)
-    accentGreenButton = Color(0xFFFFFFFF), // Crisp white button
-    accentPurple = Color(0xFFA855F7),    // Electric purple
-    accentCyan = Color(0xFF38BDF8),      // Sky sapphire
-    accentRed = Color(0xFFEF4444),       // Clean alert red
+    background = Color(0xFF02060D),      // Deep space black-blue
+    surface = Color(0xFF07121F),         // Dark navy surface
+    cardBackground = Color(0xFF0B1B2E),  // Elevated navy card
+    borderColor = Color(0xFF0E4F7A),     // Blue glow border
+    textPrimary = Color(0xFFD6F6FF),     // Icy white-blue text
+    textSecondary = Color(0xFF6FA8C7),   // Soft steel blue
+    accentNeonGreen = Color(0xFF00D4FF), // Neon blue (Jarvis)
+    accentGreenButton = Color(0xFF00B8E6), // Neon blue buttons
+    accentPurple = Color(0xFF7C6CFF),    // Soft electric violet
+    accentCyan = Color(0xFF22E5FF),      // Bright cyan glow
+    accentRed = Color(0xFFFF4D4D),       // Alert red
     accentOrange = Color(0xFFFF9500),
     isDark = true
 )
@@ -135,4 +135,4 @@ val AccentOrange: Color
     @Composable
     @ReadOnlyComposable
     get() = AppTheme.colors.accentOrange
-
+// END
