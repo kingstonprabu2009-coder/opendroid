@@ -1994,43 +1994,6 @@ fun SettingsScreen(
                         ) {
                             Column(modifier = Modifier.weight(1f)) {
                                 Text(
-                                    text = "Show Floating Button",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = TextPrimary
-                                )
-                                Text(
-                                    text = "Show a tiny floating bubble to launch the app or record commands directly.",
-                                    fontSize = 12.sp,
-                                    color = TextSecondary
-                                )
-                            }
-                            Switch(
-                                checked = config.showFloatingButton,
-                                onCheckedChange = { viewModel.updateShowFloatingButton(it) },
-                                colors = SwitchDefaults.colors(
-                                    checkedThumbColor = TextPrimary,
-                                    checkedTrackColor = TextPrimary.copy(alpha = 0.5f)
-                                )
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(1.dp)
-                                .background(BorderColor)
-                        )
-                        Spacer(modifier = Modifier.height(16.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
                                     text = if (config.isDarkMode) "Dark Mode" else "Light Mode",
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold,
