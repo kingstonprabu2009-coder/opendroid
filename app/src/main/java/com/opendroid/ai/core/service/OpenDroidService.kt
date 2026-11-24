@@ -178,6 +178,24 @@ class OpenDroidService : Service() {
         }
     }
 
+    /**
+     * After a query is sent, wait until Jarvis has finished thinking and speaking
+     * (agent state Idle, max 60 s) before the wake word mic opens again. This stops
+     * the wake listener from fighting the reply voice.
+     */
+    private fun resumeWakeWhenIdle() {
+        serviceScope.launch {
+            delay(1500)
+            var waited = 0
+            while (waited < 60000 && agentLoop.agentState.value !is AgentState.Idle) {
+                delay(500)
+                waited += 500
+            }
+            delay(500)
+            if (!showFloatingButton) startWakeWordDetection()
+        }
+    }
+
     private fun startListeningForQuery() {
         // Temporarily pause wake word to avoid hearing itself
         wakeWordDetector.stopListening()
@@ -191,7 +209,7 @@ class OpenDroidService : Service() {
                 agentLoop.processQuery(query, this)
                 // Resume wake word detection only if floating button is disabled
                 if (!showFloatingButton) {
-                    startWakeWordDetection()
+                    resumeWakeWhenIdle()
                 } else {
                     agentLoop.setAgentState(AgentState.Idle)
                 }
