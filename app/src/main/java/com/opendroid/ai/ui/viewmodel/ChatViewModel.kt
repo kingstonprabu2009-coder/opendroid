@@ -8,10 +8,8 @@ import com.opendroid.ai.core.agent.ChatAgent
 import com.opendroid.ai.core.agent.ChatErrorPrimaryAction
 import com.opendroid.ai.core.agent.ChatErrorUiState
 import com.opendroid.ai.core.agent.primaryAction
-import com.opendroid.ai.data.models.AutoMode
 import com.opendroid.ai.data.models.ChatMessage
 import com.opendroid.ai.data.models.LLMConfig
-import com.opendroid.ai.data.models.resolvedAutoMode
 import com.opendroid.ai.data.repository.ChatSession
 import com.opendroid.ai.data.repository.ConversationRepository
 import com.opendroid.ai.data.repository.SettingsRepository
@@ -148,20 +146,6 @@ class ChatViewModel @Inject constructor(
 
     fun approvePlan(context: Context, planId: String, grants: Set<String> = emptySet()) {
         agentLoop.approveProposedPlan(context, planId, grants)
-    }
-
-    /** Chip tap: Off <-> Auto only. YOLO exits to OFF from here. */
-    fun cycleAutoMode() {
-        viewModelScope.launch {
-            settingsRepository.updateConfig { current ->
-                val next = when (current.resolvedAutoMode()) {
-                    AutoMode.OFF -> AutoMode.AUTO
-                    AutoMode.AUTO -> AutoMode.OFF
-                    AutoMode.YOLO -> AutoMode.OFF
-                }
-                current.copy(autoMode = next, autoConfirmPlans = next == AutoMode.YOLO)
-            }
-        }
     }
 
     fun rejectPlan() {
