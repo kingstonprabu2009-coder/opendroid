@@ -214,30 +214,20 @@ fun ChatScreen(
                     }
                 },
                 actions = {
-                    val autoMode = llmConfig.resolvedAutoMode()
-                    val chipColor = when (autoMode) {
-                        AutoMode.OFF -> TextSecondary
-                        AutoMode.AUTO -> TextPrimary
-                        AutoMode.YOLO -> AccentRed
-                    }
-                    OutlinedButton(
-                        onClick = { viewModel.cycleAutoMode() },
-                        border = BorderStroke(1.dp, chipColor.copy(alpha = 0.6f)),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = chipColor),
-                        contentPadding = PaddingValues(horizontal = 10.dp, vertical = 0.dp),
-                        modifier = Modifier.height(28.dp)
-                    ) {
-                        Text(
-                            text = when (autoMode) {
-                                AutoMode.OFF -> "MANUAL"
-                                AutoMode.AUTO -> "AUTO"
-                                AutoMode.YOLO -> "YOLO"
-                            },
-                            fontSize = 10.sp,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
+                    
+                        
+                    
+                        
+                            
+                                
+                                
+                                
+                            
+                            
+                            
+                            
+                        
+                    
                     IconButton(onClick = { viewModel.newChat() }) {
                         Icon(
                             imageVector = Icons.Default.Add,
