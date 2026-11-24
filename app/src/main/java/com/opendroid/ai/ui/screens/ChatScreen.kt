@@ -203,7 +203,7 @@ fun ChatScreen(
                 title = {
                     Column {
                         Text(
-                            text = "OPENDROID",
+                            text = "JARVIS",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
@@ -575,7 +575,7 @@ fun ChatScreen(
                                 TextField(
                                     value = inputQuery,
                                     onValueChange = { inputQuery = it; voiceError = null },
-                                    placeholder = { Text("Ask OpenDroid to run an autonomous task...", color = TextSecondary, fontSize = 14.sp) },
+                                    placeholder = { Text("Ask Jarvis to run an autonomous task...", color = TextSecondary, fontSize = 14.sp) },
                                     colors = TextFieldDefaults.colors(
                                         focusedContainerColor = Color.Transparent,
                                         unfocusedContainerColor = Color.Transparent,
