@@ -203,6 +203,43 @@ class OpenDroidService : Service() {
         }
     }
 
+    /**
+     * True when the whole utterance is just a goodbye ("bye", "bye bye", "goodbye",
+     * "bye jarvis", "பை"). Exact match only, so a sentence like "say bye to mom"
+     * is still sent to the agent as a normal query.
+     */
+    private fun isByeCommand(query: String): Boolean {
+        val cleaned = query
+            .lowercase()
+            .replace(Regex("[^\\p{L}\\p{M}\\p{N} ]"), "")
+            .trim()
+        return cleaned in setOf(
+            "bye",
+            "bye bye",
+            "goodbye",
+            "good bye",
+            "bye jarvis",
+            "bye bye jarvis",
+            "goodbye jarvis",
+            "பை",
+            "பை பை"
+        )
+    }
+
+    /**
+     * User said bye: speak a short goodbye, then stop the whole service. The wake word
+     * stops with it and stays off until the service is started again.
+     */
+    private fun handleBye() {
+        wakeWordDetector.stopListening()
+        agentLoop.setAgentState(AgentState.Idle)
+        textToSpeechEngine.speak("பை சார்")
+        serviceScope.launch {
+            delay(1500)
+            stopSelf()
+        }
+    }
+
     private fun startListeningForQuery() {
         // Temporarily pause wake word to avoid hearing itself
         wakeWordDetector.stopListening()
@@ -213,13 +250,17 @@ class OpenDroidService : Service() {
         // Start speech recognizer for query input
         speechRecognitionEngine.startListening(
             onResult = { query ->
-                agentLoop.speakReplies = true
-                agentLoop.processQuery(query, this)
-                // Resume wake word detection only if floating button is disabled
-                if (!showFloatingButton) {
-                    resumeWakeWhenIdle()
+                if (isByeCommand(query)) {
+                    handleBye()
                 } else {
-                    agentLoop.setAgentState(AgentState.Idle)
+                    agentLoop.speakReplies = true
+                    agentLoop.processQuery(query, this)
+                    // Resume wake word detection only if floating button is disabled
+                    if (!showFloatingButton) {
+                        resumeWakeWhenIdle()
+                    } else {
+                        agentLoop.setAgentState(AgentState.Idle)
+                    }
                 }
             },
             onError = { _ ->
