@@ -344,8 +344,8 @@ interface ChatAgent {
     val chatError: StateFlow<ChatErrorUiState?>
 
     /** Session the latest task was pinned to, or null before any task has started. */
-    val activeTaskSessionId: StateFlow<String?>
-
+        val activeTaskSessionId: StateFlow<String?>
+    var speakReplies: Boolean
     /** Session of the plan waiting in [AgentState.PlanProposed], or null when none is. */
     val proposedPlanSessionId: StateFlow<String?>
 
@@ -516,7 +516,8 @@ class AgentLoop @Inject constructor(
 
     // Speak callback to be implemented by TTS service
     var onSpeakCallback: ((String) -> Unit)? = null
-@Volatile var speakReplies: Boolean = false
+@Volatile override var speakReplies: Boolean = false
+
 
     // Silences speech in progress; set by the TTS service and called from cancelCurrentTask.
     var onStopSpeakingCallback: (() -> Unit)? = null
