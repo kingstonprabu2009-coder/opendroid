@@ -26,7 +26,10 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
@@ -48,7 +51,6 @@ class OpenDroidService : Service() {
     private lateinit var textToSpeechEngine: TextToSpeechEngine
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
-    private var showFloatingButton = false
     private val pendingApprovalListen = PendingApprovalListen()
     private val approvalListenGate = ApprovalListenGate()
     private var foregroundStarted = false
@@ -57,7 +59,9 @@ class OpenDroidService : Service() {
         const val ACTION_TRIGGER_RECORD = "com.opendroid.ai.action.TRIGGER_RECORD"
         private const val CHANNEL_ID = "opendroid_channel"
         private const val NOTIFICATION_ID = 2024
-        
+        private val _isRunning = MutableStateFlow(false)
+        val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()
+
         fun start(context: Context) {
             val intent = Intent(context, OpenDroidService::class.java)
             context.startForegroundService(intent)
@@ -72,15 +76,15 @@ class OpenDroidService : Service() {
     override fun onCreate() {
         super.onCreate()
 
-        // Start Foreground Notification. A refused start (boot on Android 15, or a
-        // sticky restart from the background) stops the service instead of crashing
-        // the process; MainActivity and the Navigation ON_RESUME hook start it again.
+        // Start the foreground notification before initializing microphone services.
+        // If Android refuses the start, stop cleanly rather than crashing the process.
         createNotificationChannel()
         foregroundStarted = startForegroundCompat()
         if (!foregroundStarted) {
             stopSelf()
             return
         }
+        _isRunning.value = true
 
         // Initialize engines
         wakeWordDetector = WakeWordDetector(this)
@@ -116,17 +120,8 @@ class OpenDroidService : Service() {
 
         mcpServer.start()
 
-        // Monitor floating button config to start/stop wake word detection dynamically
-        serviceScope.launch {
-            settingsRepository.llmConfig.collectLatest { config ->
-                showFloatingButton = config.showFloatingButton
-                if (showFloatingButton) {
-                    wakeWordDetector.stopListening()
-                } else {
-                    startWakeWordDetection()
-                }
-            }
-        }
+        // Wake-word listening stays active whenever the Jarvis service is running.
+        startWakeWordDetection()
 
         // Hands-free plan approval (upstream issue 18 spec, voice section):
         // speak the prompt once per proposal; auto-listen for the reply only in
@@ -142,7 +137,7 @@ class OpenDroidService : Service() {
                     // Armed with the prompt's own id before it is queued, so only the
                     // prompt finishing opens the mic, never an earlier utterance.
                     val promptId = UUID.randomUUID().toString()
-                    if (!showFloatingButton && agentLoop.speakReplies) {
+                    if (agentLoop.speakReplies) {
                         pendingApprovalListen.arm(state.plan.planId)
                         approvalListenGate.armFor(promptId)
                     } else {
@@ -199,7 +194,7 @@ class OpenDroidService : Service() {
                 waited += 500
             }
             delay(500)
-            if (!showFloatingButton) startWakeWordDetection()
+            startWakeWordDetection()
         }
     }
 
@@ -255,20 +250,12 @@ class OpenDroidService : Service() {
                 } else {
                     agentLoop.speakReplies = true
                     agentLoop.processQuery(query, this)
-                    // Resume wake word detection only if floating button is disabled
-                    if (!showFloatingButton) {
-                        resumeWakeWhenIdle()
-                    } else {
-                        agentLoop.setAgentState(AgentState.Idle)
-                    }
+                    resumeWakeWhenIdle()
                 }
             },
             onError = { _ ->
                 agentLoop.setAgentState(AgentState.Idle)
-                // Resume wake word detection only if floating button is disabled
-                if (!showFloatingButton) {
-                    startWakeWordDetection()
-                }
+                startWakeWordDetection()
             }
         )
     }
@@ -288,10 +275,10 @@ class OpenDroidService : Service() {
                     VoiceApprovalIntent.REJECT -> agentLoop.rejectProposedPlan()
                     VoiceApprovalIntent.NONE -> Unit
                 }
-                if (!showFloatingButton) startWakeWordDetection()
+                startWakeWordDetection()
             },
             onError = { _ ->
-                if (!showFloatingButton) startWakeWordDetection()
+                startWakeWordDetection()
             }
         )
     }
@@ -311,6 +298,7 @@ class OpenDroidService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        _isRunning.value = false
         serviceScope.cancel()
         if (!foregroundStarted) return
         mcpServer.stop()
