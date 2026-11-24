@@ -91,15 +91,15 @@ fun SplashScreen(onNavigateNext: () -> Unit) {
                 .alpha(alpha.value)
                 .scale(scale.value)
         ) {
-            // Halo glow behind the bot logo
+            // Halo glow behind the Jarvis logo
             Box(
                 modifier = Modifier
-                    .size(150.dp)
+                    .size(190.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.radialGradient(
                             colors = listOf(
-                                TextPrimary.copy(alpha = 0.08f),
+                                TextPrimary.copy(alpha = 0.12f),
                                 Color.Transparent
                             )
                         )
@@ -107,27 +107,27 @@ fun SplashScreen(onNavigateNext: () -> Unit) {
                 contentAlignment = Alignment.Center
             ) {
                 Image(
-                    painter = painterResource(id = R.drawable.bot),
-                    contentDescription = "OpenDroid Logo",
-                    modifier = Modifier.size(128.dp)
+                    painter = painterResource(id = R.drawable.jarvis_icon_fg),
+                    contentDescription = "Jarvis Logo",
+                    modifier = Modifier.size(170.dp)
                 )
             }
 
             Spacer(modifier = Modifier.height(28.dp))
 
             Text(
-                text = "OPENDROID",
-                fontSize = 32.sp,
+                text = "JARVIS",
+                fontSize = 36.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.SansSerif,
                 color = TextPrimary,
-                letterSpacing = 6.sp
+                letterSpacing = 8.sp
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
             Text(
-                text = "Autonomous On-Device Intelligence",
+                text = "At your service, Sir",
                 fontSize = 13.sp,
                 fontWeight = FontWeight.Normal,
                 fontFamily = FontFamily.SansSerif,
@@ -137,12 +137,12 @@ fun SplashScreen(onNavigateNext: () -> Unit) {
 
             Spacer(modifier = Modifier.height(44.dp))
 
-            // Premium Status Pill
+            // Status Pill
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
                     .background(DarkSurface)
-                    .border(1.dp, TextPrimary.copy(alpha = 0.12f), RoundedCornerShape(20.dp))
+                    .border(1.dp, TextPrimary.copy(alpha = 0.25f), RoundedCornerShape(20.dp))
                     .padding(horizontal = 16.dp, vertical = 7.dp)
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -166,3 +166,4 @@ fun SplashScreen(onNavigateNext: () -> Unit) {
         }
     }
 }
+// END
