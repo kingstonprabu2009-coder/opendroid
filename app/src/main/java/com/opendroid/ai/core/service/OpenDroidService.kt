@@ -178,7 +178,7 @@ class OpenDroidService : Service() {
     private fun onWakeWordHeard() {
         wakeWordDetector.stopListening()
         agentLoop.speakReplies = true
-        textToSpeechEngine.speak("Yes sir?")
+        textToSpeechEngine.speak("சொல்லுங்க சார்")
         serviceScope.launch {
             delay(1800)
             startListeningForQuery()
