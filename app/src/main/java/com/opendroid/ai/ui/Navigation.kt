@@ -279,16 +279,6 @@ fun OpenDroidNavigation(
     }
 }
 
-sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
-    object Chat : Screen("chat", "Chat", Icons.Default.Chat)
-    object Plan : Screen("plan", "Plan", Icons.Default.List)
-    object Memory : Screen("memory", "Memory", Icons.Default.Star)
-    object Social : Screen("social", "Social", Icons.Default.Share)
-    object Macros : Screen("macros", "Macros", Icons.Default.Build)
-    object History : Screen("history", "Logs", Icons.Default.History)
-    object Settings : Screen("settings", "Settings", Icons.Default.Settings)
-}
-
 @Composable
 fun MainDashboard(
     onNavigateToBenchmark: () -> Unit,
@@ -303,145 +293,20 @@ fun MainDashboard(
     onNavigateToCrashLog: () -> Unit = {},
     onNavigateToRoutines: () -> Unit = {}
 ) {
-    val context = LocalContext.current
-
-    // Start the service as soon as RECORD_AUDIO is granted, and keep checking on every
-    // resume - not just once on first composition - so a user who grants the microphone
-    // from Settings > Permissions (rather than at onboarding) gets the service started
-    // immediately on returning here, with no app restart required.
-    var recordAudioServiceStarted by remember { mutableStateOf(false) }
-    val lifecycleOwner = LocalLifecycleOwner.current
-    DisposableEffect(lifecycleOwner) {
-        val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_RESUME) {
-                val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED
-                if (granted && !recordAudioServiceStarted) {
-                    recordAudioServiceStarted = true
-                    com.opendroid.ai.core.service.OpenDroidService.start(context)
-                }
-            }
-        }
-        lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose {
-            lifecycleOwner.lifecycle.removeObserver(observer)
-        }
-    }
-
-    var currentTab by remember { mutableStateOf<Screen>(Screen.Chat) }
-
-    val chatViewModel: ChatViewModel = hiltViewModel()
-    val planViewModel: PlanViewModel = hiltViewModel()
-    val memoryViewModel: MemoryViewModel = hiltViewModel()
-    val socialViewModel: SocialViewModel = hiltViewModel()
-    val macroViewModel: MacroViewModel = hiltViewModel()
-    val historyViewModel: HistoryViewModel = hiltViewModel()
     val settingsViewModel: SettingsViewModel = hiltViewModel()
 
-    val tabs = listOf(
-        Screen.Chat,
-        Screen.Plan,
-        Screen.Memory,
-        Screen.Social,
-        Screen.Macros,
-        Screen.History,
-        Screen.Settings
+    JarvisHomeScreen(
+        settingsViewModel = settingsViewModel,
+        onNavigateToBenchmark = onNavigateToBenchmark,
+        onNavigateToPrivacyPolicy = onNavigateToPrivacyPolicy,
+        onNavigateToTermsOfUse = onNavigateToTermsOfUse,
+        onNavigateToHelpCenter = onNavigateToHelpCenter,
+        onNavigateToLicense = onNavigateToLicense,
+        onNavigateToAbout = onNavigateToAbout,
+        onNavigateToAutoReply = onNavigateToAutoReply,
+        onNavigateToNotificationHistory = onNavigateToNotificationHistory,
+        onNavigateToPermissions = onNavigateToPermissions,
+        onNavigateToCrashLog = onNavigateToCrashLog,
+        onNavigateToRoutines = onNavigateToRoutines
     )
-
-    Scaffold(
-        bottomBar = {
-            NavigationBar(
-                containerColor = AppTheme.colors.surface,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
-                    .border(1.dp, AppTheme.colors.borderColor, RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)),
-                tonalElevation = 6.dp
-            ) {
-                tabs.forEach { tab ->
-                    val isSelected = currentTab == tab
-                    val iconScale by animateFloatAsState(
-                        targetValue = if (isSelected) 1.15f else 1.0f,
-                        animationSpec = spring(
-                            dampingRatio = Spring.DampingRatioMediumBouncy,
-                            stiffness = Spring.StiffnessLow
-                        ),
-                        label = "tabIconScale"
-                    )
-                    NavigationBarItem(
-                        selected = isSelected,
-                        onClick = { currentTab = tab },
-                        icon = {
-                            Icon(
-                                imageVector = tab.icon,
-                                contentDescription = tab.title,
-                                modifier = Modifier.scale(iconScale),
-                                tint = if (isSelected) AppTheme.colors.textPrimary else AppTheme.colors.textSecondary
-                            )
-                        },
-                        label = {
-                            Text(
-                                text = tab.title,
-                                fontSize = 10.sp,
-                                color = if (isSelected) AppTheme.colors.textPrimary else AppTheme.colors.textSecondary,
-                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
-                            )
-                        },
-                        colors = NavigationBarItemDefaults.colors(
-                            indicatorColor = AppTheme.colors.textPrimary.copy(alpha = 0.08f),
-                            selectedIconColor = AppTheme.colors.textPrimary,
-                            unselectedIconColor = AppTheme.colors.textSecondary,
-                            selectedTextColor = AppTheme.colors.textPrimary,
-                            unselectedTextColor = AppTheme.colors.textSecondary
-                        )
-                    )
-                }
-            }
-        },
-        containerColor = AppTheme.colors.background
-    ) { paddingValues ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(paddingValues)
-                .consumeWindowInsets(paddingValues)
-        ) {
-            AnimatedContent(
-                targetState = currentTab,
-                transitionSpec = {
-                    (fadeIn(animationSpec = tween(220)) + scaleIn(initialScale = 0.98f, animationSpec = tween(220)))
-                        .togetherWith(fadeOut(animationSpec = tween(180)))
-                },
-                label = "DashboardTabTransition"
-            ) { tab ->
-                when (tab) {
-                    Screen.Chat -> ChatScreen(
-                        viewModel = chatViewModel,
-                        onOpenSettings = { currentTab = Screen.Settings }
-                    )
-                    Screen.Plan -> PlanScreen(viewModel = planViewModel)
-                    Screen.Memory -> MemoryScreen(viewModel = memoryViewModel)
-                    Screen.Social -> SocialScreen(viewModel = socialViewModel)
-                    Screen.Macros -> MacrosScreen(
-                        viewModel = macroViewModel,
-                        onNavigateToRoutines = onNavigateToRoutines
-                    )
-                    Screen.History -> LogsScreen(viewModel = historyViewModel)
-                    Screen.Settings -> SettingsScreen(
-                        viewModel = settingsViewModel,
-                        onNavigateToBenchmark = onNavigateToBenchmark,
-                        onNavigateToPrivacyPolicy = onNavigateToPrivacyPolicy,
-                        onNavigateToTermsOfUse = onNavigateToTermsOfUse,
-                        onNavigateToHelpCenter = onNavigateToHelpCenter,
-                        onNavigateToLicense = onNavigateToLicense,
-                        onNavigateToAbout = onNavigateToAbout,
-                        onNavigateToAutoReply = onNavigateToAutoReply,
-                        onNavigateToNotificationHistory = onNavigateToNotificationHistory,
-                        onNavigateToPermissions = onNavigateToPermissions,
-                        onNavigateToCrashLog = onNavigateToCrashLog,
-                        onNavigateToRoutines = onNavigateToRoutines
-                    )
-                }
-            }
-        }
-    }
 }
