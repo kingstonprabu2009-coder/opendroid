@@ -2,6 +2,7 @@ package com.opendroid.ai.core.voice
 
 import android.content.Context
 import android.content.Intent
+import android.media.AudioManager
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -16,6 +17,8 @@ class WakeWordDetector(private val context: Context) {
     private var intent: Intent? = null
     private var onWakeWordDetectedCallback: (() -> Unit)? = null
     private var isListening = false
+    private var beepMuted = false
+    private val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
 
     private val wakeWords = listOf(
         "jarvis", "jarvish", "jarvas", "charvis", "service",
@@ -43,10 +46,33 @@ class WakeWordDetector(private val context: Context) {
         }
     }
 
+    private fun muteBeep() {
+        if (beepMuted) return
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_MUTE, 0)
+        } catch (e: Exception) {}
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_MUTE, 0)
+        } catch (e: Exception) {}
+        beepMuted = true
+    }
+
+    private fun unmuteBeep() {
+        if (!beepMuted) return
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_SYSTEM, AudioManager.ADJUST_UNMUTE, 0)
+        } catch (e: Exception) {}
+        try {
+            audioManager.adjustStreamVolume(AudioManager.STREAM_MUSIC, AudioManager.ADJUST_UNMUTE, 0)
+        } catch (e: Exception) {}
+        beepMuted = false
+    }
+
     fun startListening(onWakeWordDetected: () -> Unit) {
         if (isListening) return
         this.onWakeWordDetectedCallback = onWakeWordDetected
         isListening = true
+        muteBeep()
         startSpeechListening()
     }
 
@@ -114,6 +140,7 @@ class WakeWordDetector(private val context: Context) {
     }
 
     private fun triggerWakeWord() {
+        unmuteBeep()
         onWakeWordDetectedCallback?.invoke()
     }
 
@@ -138,6 +165,7 @@ class WakeWordDetector(private val context: Context) {
         isListening = false
         handler.removeCallbacks(restartRunnable)
         cleanupRecognizer()
+        unmuteBeep()
         onWakeWordDetectedCallback = null
     }
 
@@ -145,3 +173,4 @@ class WakeWordDetector(private val context: Context) {
         stopListening()
     }
 }
+// END
