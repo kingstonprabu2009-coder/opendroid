@@ -815,17 +815,6 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
-    fun updateShowFloatingButton(enabled: Boolean) {
-        _llmConfig.value = _llmConfig.value.copy(showFloatingButton = enabled)
-        viewModelScope.launch {
-            configSaver.save(
-                revert = { stored -> copy(showFloatingButton = stored.showFloatingButton) }
-            ) { current ->
-                current.copy(showFloatingButton = enabled)
-            }
-        }
-    }
-
     fun updateDarkMode(enabled: Boolean) {
         _llmConfig.value = _llmConfig.value.copy(isDarkMode = enabled)
         viewModelScope.launch {
