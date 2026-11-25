@@ -147,7 +147,7 @@ class WakeWordDetector(private val context: Context) {
                 if (matches != null) {
                     for (match in matches) {
                         if (isWakeWord(match)) {
-                            triggerWakeWord(match)
+                            triggerWakeWord()
                             return
                         }
                     }
@@ -160,7 +160,7 @@ class WakeWordDetector(private val context: Context) {
                 if (matches != null) {
                     for (match in matches) {
                         if (isWakeWord(match)) {
-                            triggerWakeWord(match)
+                            triggerWakeWord()
                             return
                         }
                     }
@@ -177,10 +177,9 @@ class WakeWordDetector(private val context: Context) {
         }
     }
 
-    private fun triggerWakeWord(heard: String) {
+    private fun triggerWakeWord() {
         if (!isListening) return
         unmuteBeep()
-        debugToast("Heard: $heard")
         onWakeWordDetectedCallback?.invoke()
     }
 

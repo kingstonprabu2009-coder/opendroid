@@ -4,6 +4,7 @@ import android.content.Context
 import android.media.MediaPlayer
 import android.speech.tts.TextToSpeech
 import com.opendroid.ai.data.repository.SettingsRepository
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -12,6 +13,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.Call
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -33,6 +35,8 @@ class TextToSpeechEngine(
 
     private var tts: TextToSpeech? = null
     private var isInitialized = false
+    // Completes when the phone's TTS engine has finished starting (it takes a moment).
+    private val ready = CompletableDeferred<Unit>()
     private val scope = CoroutineScope(SupervisorJob() + dispatcher)
     private val mainHandler = android.os.Handler(android.os.Looper.getMainLooper())
 
@@ -71,6 +75,11 @@ class TextToSpeechEngine(
     }
 
     override fun onInit(status: Int) {
+        configure(status)
+        ready.complete(Unit)
+    }
+
+    private fun configure(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
             val engine = tts ?: return
             // Jarvis speaks Tamil (India). If the Tamil voice data is missing on this phone,
@@ -153,10 +162,25 @@ class TextToSpeechEngine(
 
             // Local fallback — must run on main thread. Not after stop(): a cancelled
             // ElevenLabs fetch fails, and must not turn into local speech.
-            if (isInitialized && generation.get() == speechGeneration) {
+            // The first reply often arrives before the engine is ready, so wait for it.
+            withTimeoutOrNull(5000) { ready.await() }
+            if (generation.get() == speechGeneration) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    tts?.let { prepareVoiceFor(it, text) }
-                    tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
+                    val engine = tts
+                    var started = false
+                    if (isInitialized && engine != null) {
+                        prepareVoiceFor(engine, text)
+                        started = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) ==
+                            TextToSpeech.SUCCESS
+                    }
+                    if (!started) {
+                        android.widget.Toast.makeText(
+                            context,
+                            "Jarvis voice start aagala. Phone Text-to-speech settings check pannunga.",
+                            android.widget.Toast.LENGTH_LONG
+                        ).show()
+                        onCompletionListener?.invoke(utteranceId)
+                    }
                 }
             }
         }
