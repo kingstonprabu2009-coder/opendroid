@@ -25,6 +25,32 @@ class SpeechRecognitionEngine(private val context: Context) {
         initializeRecognizer()
     }
 
+    private val audioManager = context.getSystemService(android.content.Context.AUDIO_SERVICE) as android.media.AudioManager
+    private val beepStreams = listOf(
+        android.media.AudioManager.STREAM_NOTIFICATION,
+        android.media.AudioManager.STREAM_SYSTEM
+    )
+    private val mutedByUs = mutableSetOf<Int>()
+
+    // Silences the mic start/stop beep so the mic feels like a live call.
+    private fun muteBeep() {
+        for (st in beepStreams) {
+            try {
+                if (!audioManager.isStreamMute(st)) {
+                    audioManager.adjustStreamVolume(st, android.media.AudioManager.ADJUST_MUTE, 0)
+                    mutedByUs.add(st)
+                }
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun unmuteBeep() {
+        for (st in mutedByUs.toList()) {
+            try { audioManager.adjustStreamVolume(st, android.media.AudioManager.ADJUST_UNMUTE, 0) } catch (e: Exception) {}
+        }
+        mutedByUs.clear()
+    }
+
     private fun initializeRecognizer() {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
@@ -56,15 +82,17 @@ class SpeechRecognitionEngine(private val context: Context) {
 
         activeSessionId += 1
         val sessionId = activeSessionId
+        muteBeep()
 
         speechRecognizer?.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {}
-            override fun onBeginningOfSpeech() {}
+            override fun onBeginningOfSpeech() { unmuteBeep() }
             override fun onRmsChanged(rmsdB: Float) {}
             override fun onBufferReceived(buffer: ByteArray?) {}
             override fun onEndOfSpeech() {}
 
             override fun onError(error: Int) {
+                unmuteBeep()
                 if (sessionId != activeSessionId) return
                 val message = when (error) {
                     SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
@@ -82,6 +110,7 @@ class SpeechRecognitionEngine(private val context: Context) {
             }
 
             override fun onResults(results: Bundle?) {
+                unmuteBeep()
                 if (sessionId != activeSessionId) return
                 val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                 if (!matches.isNullOrEmpty()) {
@@ -116,6 +145,7 @@ class SpeechRecognitionEngine(private val context: Context) {
      */
     fun cancel() {
         activeSessionId += 1
+        unmuteBeep()
         speechRecognizer?.cancel()
     }
 
@@ -123,6 +153,7 @@ class SpeechRecognitionEngine(private val context: Context) {
         // Invalidate the active session so a callback already in flight cannot fire after
         // this engine (and the owner that created it) has been disposed.
         activeSessionId += 1
+        unmuteBeep()
         speechRecognizer?.destroy()
         speechRecognizer = null
     }

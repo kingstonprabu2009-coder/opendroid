@@ -30,12 +30,10 @@ class TextToSpeechEngine(
     private val settingsRepository: SettingsRepository,
     private val client: OkHttpClient = OkHttpClient(),
     private val elevenLabsBaseUrl: String = "https://api.elevenlabs.io",
-    dispatcher: CoroutineDispatcher = Dispatchers.IO,
-    private val edgeVoiceEnabled: Boolean = false
+    dispatcher: CoroutineDispatcher = Dispatchers.IO
 ) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
-    private val edgeClient = EdgeTtsClient(client)
     private var isInitialized = false
     // Completes when the phone's TTS engine has finished starting (it takes a moment).
     private val ready = CompletableDeferred<Unit>()
@@ -64,11 +62,13 @@ class TextToSpeechEngine(
         tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
             override fun onStart(utteranceId: String?) {}
             override fun onDone(utteranceId: String?) {
+                if (utteranceId?.contains(CHUNK_MARK) == true) return
                 mainHandler.post {
                     onCompletionListener?.invoke(utteranceId.orEmpty())
                 }
             }
             override fun onError(utteranceId: String?, errorCode: Int) {
+                if (utteranceId?.contains(CHUNK_MARK) == true) return
                 mainHandler.post { showProblem("Jarvis voice error $errorCode") }
                 onError(utteranceId)
             }
@@ -121,6 +121,24 @@ class TextToSpeechEngine(
     /** Text with Tamil letters is read by the Tamil voice; Tanglish / English by Indian English. */
     private fun hasTamil(text: String): Boolean = text.any { it in '\u0B80'..'\u0BFF' }
 
+    /** Voice choice saved by Settings: "male", "female" or "phone". */
+    private fun voiceChoice(): String =
+        context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("gender", "male") ?: "male"
+
+    /** Picks an installed voice matching the chosen gender; null means keep the phone default. */
+    private fun pickVoice(engine: TextToSpeech, lang: String): android.speech.tts.Voice? {
+        val choice = voiceChoice()
+        if (choice == "phone") return null
+        val voices = try { engine.voices?.filter { it.locale.language == lang } } catch (e: Exception) { null }
+            ?: return null
+        fun isMale(v: android.speech.tts.Voice) = v.name.contains("male", true) && !v.name.contains("female", true)
+        fun isFemale(v: android.speech.tts.Voice) = v.name.contains("female", true)
+        return if (choice == "male") voices.firstOrNull { isMale(it) && !it.isNetworkConnectionRequired }
+            ?: voices.firstOrNull { isMale(it) }
+        else voices.firstOrNull { isFemale(it) && !it.isNetworkConnectionRequired }
+            ?: voices.firstOrNull { isFemale(it) }
+    }
+
     /** Picks the Tamil or Indian English voice for [text]. */
     private fun prepareVoiceFor(engine: TextToSpeech, text: String) {
         val tag = if (hasTamil(text)) "ta" else "en"
@@ -130,10 +148,21 @@ class TextToSpeechEngine(
             if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
                 r = engine.setLanguage(Locale.forLanguageTag("en-IN"))
             }
+            val v = pickVoice(engine, locale.language)
+            if (v != null) engine.setVoice(v)
+            else if (voiceChoice() == "male") {
+                // No male voice installed: lower pitch so it still sounds male.
+                engine.setPitch(0.6f)
+                mainHandler.post { showProblem("Male voice phone la illa. Settings > Text-to-speech la Google voice download pannunga.") }
+            } else engine.setPitch(1.0f)
+            if (v != null) engine.setPitch(1.0f)
         } catch (e: Exception) {
             // Keep whatever voice is already set.
         }
     }
+
+    /** Speaks a short sample with the saved choice (used by the Test voice button). */
+    fun speakTest() { speak("Vanakkam sir, naan Jarvis. Intha voice ok va?") }
 
     /** Removes JSON / code blocks and symbols so Jarvis only speaks the human sentence. */
     private fun cleanForSpeech(raw: String): String {
@@ -170,15 +199,6 @@ class TextToSpeechEngine(
                 }
             }
 
-            // Free male neural voice (Valluvar for Tamil). Any failure falls through to the phone voice.
-            if (edgeVoiceEnabled && generation.get() == speechGeneration) {
-                try {
-                    if (playEdgeTts(text, utteranceId, speechGeneration)) return@launch
-                } catch (e: Exception) {
-                    // Fall back to local TTS below.
-                }
-            }
-
             // Local fallback — must run on main thread. Not after stop(): a cancelled
             // ElevenLabs fetch fails, and must not turn into local speech.
             // The first reply often arrives before the engine is ready, so wait for it.
@@ -189,8 +209,16 @@ class TextToSpeechEngine(
                     var started = false
                     if (isInitialized && engine != null) {
                         prepareVoiceFor(engine, text)
-                        started = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) ==
-                            TextToSpeech.SUCCESS
+                        // Long replies are split at sentence ends and queued, so Android TTS
+                        // never cuts or drops a reply for being too long.
+                        val parts = splitForSpeech(text, minOf(TextToSpeech.getMaxSpeechInputLength() - 200, 1500))
+                        started = true
+                        parts.forEachIndexed { i, part ->
+                            val last = i == parts.lastIndex
+                            val id = if (last) utteranceId else "$utteranceId$CHUNK_MARK$i"
+                            val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                            if (engine.speak(part, mode, null, id) != TextToSpeech.SUCCESS) started = false
+                        }
                     }
                     val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
                     if (started && audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) {
@@ -286,48 +314,6 @@ class TextToSpeechEngine(
         }
     }
 
-    private fun playEdgeTts(text: String, utteranceId: String, speechGeneration: Long): Boolean {
-        val voice = EdgeTtsClient.voiceFor(text)
-        // Tanglish is rewritten in Tamil letters so the Tamil voice reads it properly.
-        val convert = voice == "en-IN-PrabhatNeural" && !TanglishToTamil.looksEnglish(text)
-        val spoken = if (convert) TanglishToTamil.convert(text) else text
-        val voiceToUse = if (convert) "ta-IN-ValluvarNeural" else voice
-        val clip = File.createTempFile(CLIP_PREFIX, CLIP_SUFFIX, context.cacheDir)
-        val ok = try {
-            edgeClient.synthesize(spoken, voiceToUse, clip)
-        } catch (e: Exception) {
-            false
-        }
-        if (!ok) {
-            clip.delete()
-            return false
-        }
-        synchronized(playerLock) {
-            if (generation.get() != speechGeneration) {
-                clip.delete()
-                return true
-            }
-            releasePlayerLocked()
-            val player = MediaPlayer()
-            mediaPlayer = player
-            currentClip = clip
-            try {
-                player.setDataSource(clip.absolutePath)
-                player.prepare()
-                player.setOnCompletionListener { finishClip(player, utteranceId) }
-                player.setOnErrorListener { _, _, _ ->
-                    finishClip(player, utteranceId)
-                    true
-                }
-                player.start()
-            } catch (e: Exception) {
-                releasePlayerLocked()
-                return false
-            }
-        }
-        return true
-    }
-
     private fun finishClip(player: MediaPlayer, utteranceId: String) {
         synchronized(playerLock) {
             if (mediaPlayer === player) releasePlayerLocked()
@@ -350,11 +336,29 @@ class TextToSpeechEngine(
         }?.forEach { it.delete() }
     }
 
+    private fun splitForSpeech(text: String, max: Int): List<String> {
+        if (text.length <= max) return listOf(text)
+        val out = mutableListOf<String>()
+        val cur = StringBuilder()
+        for (sentence in text.split(Regex("(?<=[.!?।])\\s+"))) {
+            if (cur.isNotEmpty() && cur.length + sentence.length + 1 > max) {
+                out.add(cur.toString()); cur.clear()
+            }
+            if (sentence.length > max) {
+                sentence.chunked(max).forEach { out.add(it) }
+            } else {
+                if (cur.isNotEmpty()) cur.append(' ')
+                cur.append(sentence)
+            }
+        }
+        if (cur.isNotEmpty()) out.add(cur.toString())
+        return out
+    }
+
     /** Silences speech in progress and drops any ElevenLabs clip still being fetched. */
     fun stop() {
         generation.incrementAndGet()
         inFlightCall?.cancel()
-        edgeClient.cancel()
         scope.coroutineContext.cancelChildren()
         tts?.stop()
         synchronized(playerLock) { releasePlayerLocked() }
@@ -363,7 +367,6 @@ class TextToSpeechEngine(
     fun destroy() {
         generation.incrementAndGet()
         inFlightCall?.cancel()
-        edgeClient.cancel()
         scope.cancel()
         tts?.shutdown()
         tts = null
@@ -371,6 +374,7 @@ class TextToSpeechEngine(
     }
 
     private companion object {
+        const val CHUNK_MARK = "#chunk"
         const val CLIP_PREFIX = "elevenlabs_"
         const val CLIP_SUFFIX = ".mp3"
     }

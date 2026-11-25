@@ -164,6 +164,17 @@ class MediaActions @Inject constructor(
                 }
                 if (intent.resolveActivity(context.packageManager) != null) {
                     context.startActivity(intent)
+                    // Search results only open; tap the first video so it really plays.
+                    val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+                    if (svc != null) {
+                        var tapped = false
+                        var tries = 0
+                        while (!tapped && tries < 12) {
+                            kotlinx.coroutines.delay(1000)
+                            tapped = svc.clickFirstVideoResult(query)
+                            tries++
+                        }
+                    }
                     if (playbackVerifier.awaitVerifiedPlayback(context, "youtube", query)) {
                         ActionResult(true, if (query.isNotEmpty()) "Playing '$query' on YouTube!" else "YouTube is playing!", null)
                     } else {

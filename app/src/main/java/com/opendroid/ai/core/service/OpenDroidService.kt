@@ -73,6 +73,7 @@ class OpenDroidService : Service() {
         const val ACTION_TRIGGER_RECORD = "com.opendroid.ai.action.TRIGGER_RECORD"
         const val ACTION_WAKE = "com.opendroid.ai.action.WAKE"
         const val ACTION_CANCEL_LISTEN = "com.opendroid.ai.action.CANCEL_LISTEN"
+        const val ACTION_HANGUP = "com.opendroid.ai.action.HANGUP"
         private const val CHANNEL_ID = "opendroid_channel"
         private const val NOTIFICATION_ID = 2024
         private val _isRunning = MutableStateFlow(false)
@@ -152,7 +153,7 @@ class OpenDroidService : Service() {
         // Initialize engines
         wakeWordDetector = WakeWordDetector(this)
         speechRecognitionEngine = SpeechRecognitionEngine(this)
-        textToSpeechEngine = TextToSpeechEngine(this, settingsRepository, edgeVoiceEnabled = true)
+        textToSpeechEngine = TextToSpeechEngine(this, settingsRepository)
 
         // Bind Agent Loop TTS: speak only when the user spoke by voice
         agentLoop.onSpeakCallback = { text ->
@@ -266,7 +267,12 @@ class OpenDroidService : Service() {
         wakeWordDetector.startListening { onWakeWordHeard() }
     }
 
+    // True while a live conversation is open: after each reply Jarvis listens again by itself,
+    // so "Jarvis" only has to be said once. Silence, "bye" or hang up closes it.
+    @Volatile private var conversationActive = false
+
     private fun onWakeWordHeard() {
+        conversationActive = true
         cancelListening()
         stopCurrentSpeech()
         agentLoop.speakReplies = true
@@ -280,6 +286,15 @@ class OpenDroidService : Service() {
         listenJob = serviceScope.launch {
             withTimeoutOrNull(5000) { done.await() }
             startListeningForQuery()
+        }
+    }
+
+    /** After a plain spoken reply (no agent task), keep the live conversation going. */
+    private fun resumeAfterSpeakOnly() {
+        wakeResumeJob?.cancel()
+        wakeResumeJob = serviceScope.launch {
+            delay(3500)
+            if (conversationActive) startListeningForQuery() else startWakeWordDetection()
         }
     }
 
@@ -297,6 +312,7 @@ class OpenDroidService : Service() {
      * the wake listener from fighting the reply voice.
      */
     private fun resumeWakeWhenIdle() {
+        // Kept name; now continues the live conversation when one is open.
         wakeResumeJob?.cancel()
         wakeResumeJob = serviceScope.launch {
             delay(1500)
@@ -314,7 +330,7 @@ class OpenDroidService : Service() {
                 delay(3500)
             }
             delay(500)
-            startWakeWordDetection()
+            if (conversationActive) startListeningForQuery() else startWakeWordDetection()
         }
     }
 
@@ -346,6 +362,7 @@ class OpenDroidService : Service() {
      * stops with it and stays off until the service is started again.
      */
     private fun handleBye() {
+        conversationActive = false
         getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .edit { putBoolean(KEY_WANTED, false) }
         wakeWordDetector.stopListening()
@@ -384,6 +401,7 @@ class OpenDroidService : Service() {
             when (outcome) {
                 is GroqSpeech.Outcome.Heard -> handleHeard(outcome.text)
                 GroqSpeech.Outcome.NoSpeech -> {
+                    conversationActive = false
                     VoiceSubtitles.reply.value = "Onnum kekkala sir"
                     agentLoop.setAgentState(AgentState.Idle)
                     startWakeWordDetection()
@@ -409,6 +427,7 @@ class OpenDroidService : Service() {
             },
             onPartialResult = { VoiceSubtitles.heard.value = it },
             onError = { error ->
+                conversationActive = false
                 VoiceSubtitles.reply.value = error
                 agentLoop.setAgentState(AgentState.Idle)
                 startWakeWordDetection()
@@ -420,11 +439,35 @@ class OpenDroidService : Service() {
         val query = correctTranscript(heard)
         VoiceSubtitles.heard.value = query
         VoiceSubtitles.reply.value = ""
+        val lower = query.lowercase()
+        val teachWord = lower.contains("teaching") || lower.contains("teach mode") || query.contains("டீச்சிங்")
+        if (teachWord) {
+            val off = lower.contains(" off") || lower.contains("stop") || lower.contains("mudi") ||
+                lower.contains("நிறுத்து") || lower.contains("ஆஃப்")
+            val reply: String
+            if (off && com.opendroid.ai.core.teaching.TeachingMode.active) {
+                val (name, n) = com.opendroid.ai.core.teaching.TeachingMode.stop(this)
+                reply = if (n > 0) "Teaching mode off. $name la $n step kathukkitten sir." else "Teaching mode off sir. Edhuvum kathukala."
+            } else if (!off) {
+                com.opendroid.ai.core.teaching.TeachingMode.start(
+                    this, lower.substringAfter("teaching", "").replace(Regex("\\b(mode|on|pannu)\\b"), "").trim()
+                )
+                reply = "Teaching mode on sir. Neenga pannunga, naan kathukkiren."
+            } else {
+                reply = "Teaching mode already off sir."
+            }
+            agentLoop.speakReplies = true
+            VoiceSubtitles.reply.value = reply
+            textToSpeechEngine.speak(reply)
+            if (conversationActive) resumeAfterSpeakOnly() else startWakeWordDetection()
+            return
+        }
         if (isByeCommand(query)) {
             handleBye()
         } else {
             agentLoop.speakReplies = true
-            agentLoop.processQuery(query, this)
+            val guide = com.opendroid.ai.core.teaching.TeachingMode.guideFor(this, query)
+            agentLoop.processQuery(if (guide.isBlank()) query else query + "\n" + guide, this)
             resumeWakeWhenIdle()
         }
     }
@@ -456,8 +499,17 @@ class OpenDroidService : Service() {
         // The service is already stopping; a sticky restart would only be refused again.
         if (!foregroundStarted) return START_NOT_STICKY
         if (intent?.action == ACTION_TRIGGER_RECORD) {
+            conversationActive = true
             startListeningForQuery()
         }
+        if (intent?.action == ACTION_HANGUP) {
+            conversationActive = false
+            cancelListening()
+            stopCurrentSpeech()
+            agentLoop.setAgentState(AgentState.Idle)
+            startWakeWordDetection()
+        }
+        if (intent?.action == ACTION_CANCEL_LISTEN) conversationActive = false
         if (intent?.action == ACTION_CANCEL_LISTEN &&
             agentLoop.agentState.value is AgentState.Listening
         ) {

@@ -1776,6 +1776,40 @@ fun SettingsScreen(
                                 modifier = Modifier.padding(top = 16.dp),
                                 verticalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
+                                val voiceCtx = androidx.compose.ui.platform.LocalContext.current
+                                val voicePrefs = remember { voiceCtx.getSharedPreferences("jarvis_voice", android.content.Context.MODE_PRIVATE) }
+                                var voiceGender by remember { mutableStateOf(voicePrefs.getString("gender", "male") ?: "male") }
+                                Text("Jarvis voice", fontSize = 12.sp, color = TextSecondary)
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    listOf("male" to "Male", "female" to "Female", "phone" to "Phone").forEach { (key, label) ->
+                                        if (voiceGender == key) {
+                                            Button(onClick = {}) { Text(label) }
+                                        } else {
+                                            OutlinedButton(onClick = {
+                                                voiceGender = key
+                                                voicePrefs.edit().putString("gender", key).apply()
+                                            }) { Text(label) }
+                                        }
+                                    }
+                                }
+                                OutlinedButton(onClick = {
+                                    var t: android.speech.tts.TextToSpeech? = null
+                                    t = android.speech.tts.TextToSpeech(voiceCtx) { st ->
+                                        val e = t
+                                        if (st == android.speech.tts.TextToSpeech.SUCCESS && e != null) {
+                                            e.setLanguage(java.util.Locale.forLanguageTag("en-IN"))
+                                            val vs = try { e.voices?.filter { it.locale.language == "en" } } catch (x: Exception) { null }
+                                            val pick = when (voiceGender) {
+                                                "male" -> vs?.firstOrNull { it.name.contains("male", true) && !it.name.contains("female", true) }
+                                                "female" -> vs?.firstOrNull { it.name.contains("female", true) }
+                                                else -> null
+                                            }
+                                            if (pick != null) e.setVoice(pick)
+                                            else if (voiceGender == "male") e.setPitch(0.6f)
+                                            e.speak("Vanakkam sir, naan Jarvis. Intha voice ok va?", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "t")
+                                        }
+                                    }
+                                }) { Text("Test voice") }
                                 SecureApiKeyField(
                                     value = config.elevenLabsApiKey,
                                     onValueChange = { viewModel.updateElevenLabsApiKey(it) },

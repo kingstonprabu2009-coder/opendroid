@@ -179,7 +179,7 @@ class GroqSpeech(
         const val TEXT_MODEL = "openai/gpt-oss-20b"
         const val RATE = 16000
         const val FRAME = 1600
-        const val MAX_FRAMES = 150          // 15 s
+        const val MAX_FRAMES = 300          // 30 s
         const val START_TIMEOUT_FRAMES = 60 // 6 s without speech
         const val END_SILENCE_FRAMES = 15   // 1.5 s pause ends the sentence
     }

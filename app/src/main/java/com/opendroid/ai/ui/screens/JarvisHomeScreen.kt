@@ -82,7 +82,6 @@ import com.opendroid.ai.core.voice.VoiceSubtitles
 import com.opendroid.ai.core.voice.WakeWordDetector
 import com.opendroid.ai.data.models.ChatMessage
 import com.opendroid.ai.ui.theme.AccentCyan
-import com.opendroid.ai.ui.viewmodel.TeachingViewModel
 import com.opendroid.ai.ui.theme.AccentPurple
 import com.opendroid.ai.ui.theme.AccentRed
 import com.opendroid.ai.ui.theme.AppTheme
@@ -113,12 +112,6 @@ fun JarvisHomeScreen(
     val context = LocalContext.current
     val chatViewModel: ChatViewModel = hiltViewModel()
     val memoryViewModel: MemoryViewModel = hiltViewModel()
-    val teachingViewModel: TeachingViewModel = hiltViewModel()
-    val teachStatus by teachingViewModel.status.collectAsState()
-    val teachBusy by teachingViewModel.busy.collectAsState()
-    val videoPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.GetContent()
-    ) { uri -> if (uri != null) teachingViewModel.teach(uri) }
     val agentState by chatViewModel.agentState.collectAsState()
     var mode by remember { mutableStateOf(JarvisMode.LIVE_VOICE) }
     var showSettings by remember { mutableStateOf(false) }
@@ -255,6 +248,30 @@ fun JarvisHomeScreen(
                             contentColor = if (mode == JarvisMode.LIVE_VOICE) AccentCyan else TextSecondary
                         )
                     ) { Text("Live Voice", maxLines = 1, fontSize = 12.sp) }
+                    var teachOn by remember { mutableStateOf(com.opendroid.ai.core.teaching.TeachingMode.active) }
+                    OutlinedButton(
+                        onClick = {
+                            if (teachOn) com.opendroid.ai.core.teaching.TeachingMode.stop(context)
+                            else com.opendroid.ai.core.teaching.TeachingMode.start(context)
+                            teachOn = com.opendroid.ai.core.teaching.TeachingMode.active
+                        },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (teachOn) androidx.compose.ui.graphics.Color(0xFFFFB300) else TextSecondary
+                        )
+                    ) { Text(if (teachOn) "Teach ON" else "Teach", maxLines = 1, fontSize = 12.sp) }
+                    if (serviceOn && mode == JarvisMode.LIVE_VOICE) {
+                        OutlinedButton(
+                            onClick = {
+                                context.startService(
+                                    Intent(context, OpenDroidService::class.java)
+                                        .setAction(OpenDroidService.ACTION_HANGUP)
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFFF5252))
+                        ) { Text("Hang up", maxLines = 1, fontSize = 12.sp) }
+                    }
                     OutlinedButton(
                         onClick = {
                             mode = JarvisMode.CHAT
@@ -514,25 +531,6 @@ fun JarvisHomeScreen(
                             ) {
                                 Text("TAP TO SPEAK", color = AccentCyan)
                             }
-                        }
-
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedButton(
-                            onClick = { videoPicker.launch("video/*") },
-                            enabled = !teachBusy,
-                            modifier = Modifier.fillMaxWidth(0.72f)
-                        ) {
-                            Text(if (teachBusy) "LEARNING..." else "TEACH: REFERENCE VIDEO", color = AccentCyan)
-                        }
-                        if (teachStatus.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text(
-                                text = teachStatus,
-                                color = TextSecondary,
-                                fontSize = 12.sp,
-                                textAlign = TextAlign.Center,
-                                modifier = Modifier.fillMaxWidth(0.9f)
-                            )
                         }
 
                         if (lines == 0) Text(

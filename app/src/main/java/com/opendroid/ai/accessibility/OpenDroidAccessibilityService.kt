@@ -34,6 +34,18 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        if (com.opendroid.ai.core.teaching.TeachingMode.active && event.packageName?.toString() != packageName) {
+            val app = event.packageName?.toString().orEmpty()
+            val label = (event.text?.joinToString(" ") ?: "").ifBlank { event.contentDescription?.toString().orEmpty() }
+            when (event.eventType) {
+                AccessibilityEvent.TYPE_VIEW_CLICKED ->
+                    com.opendroid.ai.core.teaching.TeachingMode.record("tap \"$label\" in $app")
+                AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED ->
+                    if (!event.isPassword) com.opendroid.ai.core.teaching.TeachingMode.record("type \"$label\" in $app")
+                AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED ->
+                    com.opendroid.ai.core.teaching.TeachingMode.record("open $app")
+            }
+        }
         if (event.eventType == AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) {
             val pkg = event.packageName?.toString()
             if (!pkg.isNullOrBlank() && pkg != packageName) {
@@ -159,6 +171,30 @@ class OpenDroidAccessibilityService : AccessibilityService() {
                 return true
             }
             child.recycle()
+        }
+        return false
+    }
+
+
+    /** Taps the first video in YouTube search results (nodes described "... - play video"). */
+    fun clickFirstVideoResult(query: String = ""): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val desc = node.contentDescription?.toString().orEmpty()
+            val words = query.lowercase().split(Regex("\\s+")).filter { it.length > 1 }
+            val matches = words.isEmpty() || words.count { desc.lowercase().contains(it) } >= maxOf(1, (words.size + 1) / 2)
+            if (desc.contains("play video", ignoreCase = true) && matches) {
+                var target: AccessibilityNodeInfo? = node
+                while (target != null && !target.isClickable) target = target.parent
+                if (target != null && target.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+                val r = android.graphics.Rect()
+                node.getBoundsInScreen(r)
+                if (!r.isEmpty) return clickCoordinates(r.exactCenterX(), r.exactCenterY())
+            }
+            for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it) }
         }
         return false
     }
