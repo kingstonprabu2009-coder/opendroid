@@ -63,21 +63,21 @@ class OpenDroidNavigationBackStackTest {
     }
 
     @Test
-    fun `splash is dropped when onboarding is still pending`() {
+    fun `onboarding is skipped and splash is dropped`() {
         val navController = newController()
 
         navController.navigateAfterSplash(isOnboardingCompleted = false)
 
-        assertEquals(OpenDroidRoutes.ONBOARDING, navController.currentDestination?.route)
+        assertEquals(OpenDroidRoutes.MAIN, navController.currentDestination?.route)
         assertFalse(navController.routeStack.contains(OpenDroidRoutes.SPLASH))
+        assertFalse(navController.routeStack.contains(OpenDroidRoutes.ONBOARDING))
     }
 
     @Test
-    fun `finishing onboarding leaves no way back into the flow`() {
+    fun `first screen has no way back into onboarding`() {
         val navController = newController()
 
         navController.navigateAfterSplash(isOnboardingCompleted = false)
-        navController.navigateAfterOnboarding()
 
         assertEquals(OpenDroidRoutes.MAIN, navController.currentDestination?.route)
         assertFalse(navController.routeStack.contains(OpenDroidRoutes.ONBOARDING))
