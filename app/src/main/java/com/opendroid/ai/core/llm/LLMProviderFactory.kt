@@ -42,6 +42,7 @@ class LLMProviderFactory @Inject constructor(
     private val gemmaProvider: Provider<GemmaProvider>,
     private val liteRTLMProvider: Provider<LiteRTLMProvider>,
     private val hybridOnDeviceProvider: Provider<HybridOnDeviceProvider>,
+    private val llamaCppProvider: Provider<LlamaCppProvider>,
     private val settingsRepository: SettingsRepository,
     private val onDeviceLatencyTracker: OnDeviceLatencyTracker,
     private val actionDispatcher: dagger.Lazy<ActionDispatcher>,
@@ -75,6 +76,7 @@ class LLMProviderFactory @Inject constructor(
             "Gemma 4 (On-device)" -> hybridOnDeviceProvider.get()
             // Direct backend access (for advanced users / testing)
             "LiteRT-LM (On-device)" -> liteRTLMProvider.get()
+            "Llama.cpp (Local 7B)" -> llamaCppProvider.get()
             else -> {
                 // A name this build doesn't know, such as a provider renamed or removed
                 // without a ProviderCatalog alias. Never substitute another vendor (#82).
@@ -103,6 +105,9 @@ class LLMProviderFactory @Inject constructor(
         val config = settingsRepository.llmConfig.first()
         val activeName = ProviderCatalog.canonicalName(config.activeProvider)
         val active = getProviderByName(activeName)
+        // Local-only mode must never silently spill over to a cloud provider,
+        // even when older settings contain explicit cloud fallback entries.
+        if (activeName == "Llama.cpp (Local 7B)") return listOf(active)
         val risk = ActionSchema.highestRisk(actionNames)
         val fallbackNames = ProviderSelectionPolicy.explicitFallbacks(
             activeProvider = activeName,
@@ -187,6 +192,29 @@ class WrappedLLMProvider(
             executeWithRetry(resolved) { delegate.complete(it) }
         } finally {
             registrations.asReversed().forEach(AutoCloseable::close)
+        }
+    }
+
+    override suspend fun generate(
+        messages: List<com.opendroid.ai.data.models.ChatMessage>,
+        tools: List<ToolDefinition>
+    ): Flow<StreamChunk> = flow {
+        if (delegate.name == "Llama.cpp (Local 7B)") {
+            val request = LLMRequest(
+                systemPrompt = "You are an autonomous AI agent for Android.",
+                messages = messages,
+                tools = tools.map { Tool(it.name, it.description, it.parameters) }
+            )
+            val resolved = resolveRequest(request)
+            delegate.generate(resolved.messages, tools).collect { emit(it) }
+        } else {
+            val systemPrompt = "You are an autonomous AI agent for Android."
+            val request = LLMRequest(
+                systemPrompt = systemPrompt,
+                messages = messages,
+                tools = tools.map { Tool(it.name, it.description, it.parameters) }
+            )
+            streamComplete(request).collect { emit(StreamChunk.Content(it)) }
         }
     }
 

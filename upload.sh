@@ -1,7 +1,7 @@
 #!/data/data/com.termux/files/usr/bin/bash
 set -euo pipefail
-ZIP="$HOME/storage/downloads/jarvis-fix-17.zip"
-PROJECT="$HOME/jarvis-fix-17"
+ZIP="$HOME/storage/downloads/jarvis-fix-20.zip"
+PROJECT="$HOME/jarvis-fix-20"
 BRANCH="jarvis/home-ui-handoff3"
 
 if [ ! -f "$ZIP" ]; then
@@ -30,7 +30,7 @@ git add -A
 if git diff --cached --quiet; then
   echo "No new changes to commit."
 else
-  git commit -m "JARVIS Fix 17 update"
+  git commit -m "JARVIS polish orb UI and harden local 7B runtime"
 fi
 git push -u origin "$BRANCH"
 echo "Upload complete: GitHub branch $BRANCH updated."

@@ -83,6 +83,7 @@ class ConnectionTestPlannerTest {
         val expected = ProviderCatalog.providers
             .filter { spec -> spec.canonicalName != ProviderCatalog.ON_DEVICE }
             .filter { spec -> spec.canonicalName != "LiteRT-LM (On-device)" }
+            .filter { spec -> spec.canonicalName != "Llama.cpp (Local 7B)" }
             .map { spec -> spec.displayName }
 
         assertEquals(expected, cloud)
@@ -90,6 +91,7 @@ class ConnectionTestPlannerTest {
         assertTrue(!cloud.contains(ProviderCatalog.ON_DEVICE))
         assertTrue(!cloud.contains(ProviderCatalog.LEGACY_ON_DEVICE))
         assertTrue(!cloud.contains("LiteRT-LM (On-device)"))
+        assertTrue(!cloud.contains("Llama.cpp (Local 7B)"))
     }
 
     @Test

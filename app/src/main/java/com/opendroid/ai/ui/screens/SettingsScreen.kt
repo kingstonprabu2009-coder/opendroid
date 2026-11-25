@@ -108,7 +108,8 @@ fun SettingsScreen(
         "Opencode-Go",
         "Custom OpenAI Compatible",
         "Ollama",
-        "On-Device AI"
+        "On-Device AI",
+        "Llama.cpp (Local 7B)"
     )
 
     var providerDropdownExpanded by remember { mutableStateOf(false) }
@@ -352,6 +353,13 @@ fun SettingsScreen(
                                         providerDropdownExpanded = false
                                     }
                                 )
+                                DropdownMenuItem(
+                                    text = { Text("Llama.cpp – Qwen 7B (Local)", color = TextPrimary, modifier = Modifier.padding(start = 8.dp)) },
+                                    onClick = {
+                                        viewModel.updateActiveProvider("Llama.cpp (Local 7B)")
+                                        providerDropdownExpanded = false
+                                    }
+                                )
                                 
                                 Divider(color = BorderColor, thickness = 1.dp)
 
@@ -368,7 +376,7 @@ fun SettingsScreen(
                                     enabled = false,
                                     onClick = {}
                                 )
-                                val cloudProvidersList = providers.filter { it != "On-Device AI" }
+                                val cloudProvidersList = providers.filter { it != "On-Device AI" && it != "Llama.cpp (Local 7B)" }
                                 cloudProvidersList.forEach { name ->
                                     val displayName = when (name) {
                                         "Google Gemini" -> "Gemini"
@@ -723,6 +731,41 @@ fun SettingsScreen(
                                 fontSize = 10.sp,
                                 color = TextSecondary
                             )
+                        }
+                    }
+                }
+            }
+
+            if (config.activeProvider == "Llama.cpp (Local 7B)") {
+                item {
+                    val context = LocalContext.current
+                    Card(
+                        modifier = Modifier.fillMaxWidth().border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
+                        colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text("LOCAL QWEN 2.5 7B MODEL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("Q4_K_M model download is approximately 4.68 GB. Keep at least 5.5 GB free storage and use Wi-Fi. 7B inference may exceed the available RAM on some 6 GB phones; JARVIS checks memory and stops safely.", fontSize = 12.sp, color = TextSecondary)
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Button(onClick = {
+                                try {
+                                    val request = android.app.DownloadManager.Request(android.net.Uri.parse("https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"))
+                                        .setTitle("JARVIS Qwen 2.5 7B")
+                                        .setDescription("Downloading approximately 4.68 GB; Wi-Fi only")
+                                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                        .setAllowedOverMetered(false)
+                                        .setAllowedOverRoaming(false)
+                                        .setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")
+                                    val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
+                                    manager.enqueue(request)
+                                    android.widget.Toast.makeText(context, "Qwen 7B download started. Check Android notifications.", android.widget.Toast.LENGTH_LONG).show()
+                                } catch (error: Exception) {
+                                    android.widget.Toast.makeText(context, "Download could not start: ${error.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+                                }
+                            }, modifier = Modifier.fillMaxWidth()) {
+                                Text("Download Qwen 7B (4.68 GB)")
+                            }
                         }
                     }
                 }

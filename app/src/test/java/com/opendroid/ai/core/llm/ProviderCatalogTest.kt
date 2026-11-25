@@ -13,10 +13,18 @@ class ProviderCatalogTest {
 
     @Test
     fun `catalog has one default for every stable provider`() {
-        assertEquals(16, ProviderCatalog.providers.size)
+        assertEquals(17, ProviderCatalog.providers.size)
         ProviderCatalog.providers.forEach { provider ->
             assertTrue(provider.displayName, ProviderCatalog.defaultModel(provider.displayName).isNotBlank())
         }
+    }
+
+
+    @Test
+    fun `local llama provider has no API key requirement and is classified on device`() {
+        assertEquals("qwen2.5-7b-instruct-q4km-gguf", ProviderCatalog.defaultModel("Llama.cpp (Local 7B)"))
+        assertTrue(!ProviderCatalog.requiresApiKey("Llama.cpp (Local 7B)"))
+        assertTrue(ProviderCatalog.isOnDevice("Llama.cpp (Local 7B)"))
     }
 
     @Test

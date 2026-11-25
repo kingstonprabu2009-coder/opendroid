@@ -37,7 +37,8 @@ sealed class ConnectionTestState {
 object ConnectionTestPlanner {
     private val onDeviceCanonicalNames = setOf(
         ProviderCatalog.ON_DEVICE,
-        "LiteRT-LM (On-device)"
+        "LiteRT-LM (On-device)",
+        "Llama.cpp (Local 7B)"
     )
 
     fun cloudProviders(): List<String> = ProviderCatalog.providers

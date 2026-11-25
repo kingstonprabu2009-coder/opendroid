@@ -40,6 +40,7 @@ object ProviderCatalog {
         ProviderSpec("Ollama", "llama3"),
         ProviderSpec(ON_DEVICE, "gemma-4-on-device"),
         ProviderSpec("LiteRT-LM (On-device)", "qwen-2.5-0.5b-it-litert"),
+        ProviderSpec("Llama.cpp (Local 7B)", "qwen2.5-7b-instruct-q4km-gguf"),
         // Compatibility entry for the directly addressable AI Core backend.
         // Its persisted key is normalized to the unified on-device provider.
         ProviderSpec(LEGACY_ON_DEVICE, "gemma-4-on-device", ON_DEVICE)
@@ -79,7 +80,7 @@ object ProviderCatalog {
     }
 
     fun isOnDevice(providerName: String): Boolean = when (canonicalName(providerName)) {
-        ON_DEVICE, "LiteRT-LM (On-device)" -> true
+        ON_DEVICE, "LiteRT-LM (On-device)", "Llama.cpp (Local 7B)" -> true
         else -> false
     }
 }

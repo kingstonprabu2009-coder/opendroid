@@ -15,10 +15,12 @@ android {
         applicationId "com.opendroid.ai"
         minSdk 26
         targetSdk 36
-        versionCode 10
-        versionName "1.0.9"
+        versionCode 11
+        versionName "1.1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild { cmake { cppFlags '-std=c++17' } }
         vectorDrawables {
             useSupportLibrary = true
         }
@@ -126,6 +128,9 @@ android {
         }
     }
     // `packagingOptions` was removed in AGP 9; `packaging` is the supported name.
+    externalNativeBuild {
+        cmake { path file('src/main/cpp/CMakeLists.txt'); version '3.22.1' }
+    }
     packaging {
         resources {
             excludes += '/META-INF/{AL2.0,LGPL2.1}'

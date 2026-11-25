@@ -8,7 +8,6 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -61,7 +60,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -93,6 +91,8 @@ import com.opendroid.ai.ui.viewmodel.MemoryViewModel
 import com.opendroid.ai.ui.viewmodel.SettingsViewModel
 
 private enum class JarvisMode { LIVE_VOICE, CHAT, TEACH, MEMORY }
+
+private fun speakingState(state: AgentState): Boolean = state is AgentState.Speaking
 
 @SuppressLint("BatteryLife")
 @Composable
@@ -247,7 +247,7 @@ fun JarvisHomeScreen(
                         JarvisMode.LIVE_VOICE to "Live",
                         JarvisMode.CHAT to "Chat",
                         JarvisMode.TEACH to "Teach",
-                        JarvisMode.MEMORY to "Memory"
+                        JarvisMode.MEMORY to "Growth"
                     ).forEach { (m, label) ->
                         androidx.compose.material3.Tab(
                             selected = mode == m,
@@ -306,11 +306,13 @@ fun JarvisHomeScreen(
                         agentState is AgentState.Thinking ||
                         agentState is AgentState.Speaking
                     val transition = rememberInfiniteTransition(label = "jarvisOrb")
+                    // Calm, state-driven motion: no rotating orbit or random colour cycling.
+                    // The orb breathes while active and gives a very small vibration only while speaking.
                     val pulse by transition.animateFloat(
                         initialValue = 1f,
-                        targetValue = 1.06f,
+                        targetValue = if (active) 1.045f else 1.012f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(900),
+                            animation = tween(if (speakingState(agentState)) 620 else 1250),
                             repeatMode = RepeatMode.Reverse
                         ),
                         label = "orbPulse"
@@ -319,37 +321,20 @@ fun JarvisHomeScreen(
                         initialValue = -1f,
                         targetValue = 1f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(80, easing = LinearEasing),
+                            animation = tween(210, easing = LinearEasing),
                             repeatMode = RepeatMode.Reverse
                         ),
-                        label = "orbShake"
+                        label = "orbVoiceMotion"
                     )
                     val liveSpeaking by VoiceSubtitles.liveSpeaking.collectAsState()
                     val speaking = agentState is AgentState.Speaking || liveSpeaking
-                    // Glow cycles cyan -> red -> green only while Jarvis is really speaking;
-                    // otherwise it rests on cyan blue. It eases back to cyan when speech ends.
-                    val colourClock = remember { Animatable(0f) }
-                    LaunchedEffect(serviceOn, speaking, active) {
-                        if (serviceOn && (speaking || active)) {
-                            colourClock.snapTo(colourClock.value % 3f)
-                            // Fast colour change while Jarvis talks, slow while it listens or thinks.
-                            colourClock.animateTo(
-                                colourClock.value + 3f,
-                                infiniteRepeatable(tween(if (speaking) 2400 else 8000, easing = LinearEasing))
-                            )
-                        } else {
-                            val rest = colourClock.value % 3f
-                            colourClock.snapTo(rest)
-                            if (rest > 0.01f) colourClock.animateTo(3f, tween(500, easing = LinearEasing))
-                            colourClock.snapTo(0f)
-                        }
+                    val glowColor = when (agentState) {
+                        is AgentState.Listening -> AccentRed
+                        is AgentState.Thinking -> AccentPurple
+                        is AgentState.Speaking -> AccentCyan
+                        is AgentState.ExecutingPlan -> Color(0xFF35D07F)
+                        else -> if (speaking) AccentCyan else Color(0xFF22D3FF)
                     }
-                    val colourStep = colourClock.value
-                    val glowColors = listOf(Color(0xFF22D3FF), Color(0xFFFF2D3F), Color(0xFF1FFF6A))
-                    val step = colourStep.toInt() % 3
-                    // Hold each colour, then fade smoothly into the next one.
-                    val fade = ((colourStep % 1f - 0.65f) / 0.35f).coerceIn(0f, 1f)
-                    val glowColor = lerp(glowColors[step], glowColors[(step + 1) % 3], fade)
                     val reply by VoiceSubtitles.reply.collectAsState()
                     val history by chatViewModel.conversationHistory.collectAsState()
                     val spoken = history.filter { it.text.isNotBlank() }
@@ -421,8 +406,8 @@ fun JarvisHomeScreen(
                                         scaleX = scale
                                         scaleY = scale
                                         // Shakes while Jarvis is speaking.
-                                        translationX = if (speaking) shake * 5f else 0f
-                                        rotationZ = if (speaking) shake * 1.5f else 0f
+                                        translationX = if (speaking) shake * 2.2f else 0f
+                                        translationY = if (speaking) shake * 0.8f else 0f
                                     }
                                     .clip(CircleShape),
                                 contentAlignment = Alignment.Center
