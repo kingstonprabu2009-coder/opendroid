@@ -1,9 +1,9 @@
 package com.opendroid.ai.ui.screens
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -39,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -53,6 +54,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -60,10 +62,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
+import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.opendroid.ai.R
 import com.opendroid.ai.core.agent.AgentState
 import com.opendroid.ai.core.service.OpenDroidService
+import com.opendroid.ai.core.voice.WakeWordDetector
 import com.opendroid.ai.ui.theme.AccentCyan
 import com.opendroid.ai.ui.theme.AccentPurple
 import com.opendroid.ai.ui.theme.AccentRed
@@ -76,6 +82,7 @@ import com.opendroid.ai.ui.viewmodel.SettingsViewModel
 
 private enum class JarvisMode { LIVE_VOICE, MESSAGE, MEMORY }
 
+@SuppressLint("BatteryLife")
 @Composable
 fun JarvisHomeScreen(
     settingsViewModel: SettingsViewModel,
@@ -111,7 +118,7 @@ fun JarvisHomeScreen(
             val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
             if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
                 val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = Uri.parse("package:" + context.packageName)
+                    data = ("package:" + context.packageName).toUri()
                 }
                 context.startActivity(intent)
             }
@@ -148,6 +155,36 @@ fun JarvisHomeScreen(
             action = OpenDroidService.ACTION_TRIGGER_RECORD
         }
         ContextCompat.startForegroundService(context, intent)
+    }
+
+    // Jarvis OFF but the app is open on the Live Voice screen: saying "Jarvis" switches
+    // Jarvis ON by itself (no START press) and it starts listening.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var appResumed by remember { mutableStateOf(true) }
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) appResumed = true
+            if (event == Lifecycle.Event.ON_PAUSE) appResumed = false
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val inAppWakeOn = !serviceOn && !showSettings && mode == JarvisMode.LIVE_VOICE && appResumed
+    DisposableEffect(inAppWakeOn) {
+        var detector: WakeWordDetector? = null
+        val micOk = ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        if (inAppWakeOn && micOk) {
+            val d = WakeWordDetector(context)
+            detector = d
+            d.startListening {
+                d.stopListening()
+                OpenDroidService.startAndWake(context)
+            }
+        }
+        onDispose { detector?.destroy() }
     }
 
     Scaffold(
@@ -260,15 +297,6 @@ fun JarvisHomeScreen(
                         ),
                         label = "orbPulse"
                     )
-                    val spin by transition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 360f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(3500, easing = LinearEasing),
-                            repeatMode = RepeatMode.Restart
-                        ),
-                        label = "orbSpin"
-                    )
                     val shake by transition.animateFloat(
                         initialValue = -1f,
                         targetValue = 1f,
@@ -279,12 +307,6 @@ fun JarvisHomeScreen(
                         label = "orbShake"
                     )
                     val speaking = agentState is AgentState.Speaking
-                    val rainbow = Brush.sweepGradient(
-                        listOf(
-                            Color(0xFF00E5FF), Color(0xFF7C4DFF), Color(0xFFFF4081),
-                            Color(0xFFFFAB00), Color(0xFF00E676), Color(0xFF00E5FF)
-                        )
-                    )
                     val orbColor = when (agentState) {
                         is AgentState.Listening -> AccentRed
                         is AgentState.Thinking -> AccentPurple
@@ -292,6 +314,13 @@ fun JarvisHomeScreen(
                         is AgentState.ExecutingPlan -> AccentCyan
                         else -> TextPrimary
                     }
+                    // The orb itself glows in the colour of what Jarvis is doing.
+                    val glowColor = when (agentState) {
+                        is AgentState.Listening -> AccentRed
+                        is AgentState.Thinking -> AccentPurple
+                        else -> AccentCyan
+                    }
+                    val glowAlpha = if (active) 0.55f + (pulse - 1f) * 7f else 0.22f
                     val status = when (agentState) {
                         is AgentState.Listening -> "LISTENING"
                         is AgentState.Thinking -> "THINKING"
@@ -309,26 +338,28 @@ fun JarvisHomeScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier.size(270.dp),
+                            modifier = Modifier.size(320.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            // Colourful rotating light ring around the logo.
+                            // Soft glow that spreads out from the edge of the orb. No ring.
                             Box(
                                 modifier = Modifier
-                                    .size(270.dp)
-                                    .graphicsLayer {
-                                        rotationZ = if (active) spin else spin / 4f
-                                        alpha = if (active) 1f else 0.35f
-                                    }
-                                    .clip(CircleShape)
-                                    .background(rainbow)
+                                    .size(320.dp)
+                                    .background(
+                                        Brush.radialGradient(
+                                            0.0f to glowColor.copy(alpha = glowAlpha),
+                                            0.72f to glowColor.copy(alpha = glowAlpha),
+                                            1.0f to Color.Transparent
+                                        ),
+                                        CircleShape
+                                    )
                             )
                             Image(
                                 painter = painterResource(R.drawable.jarvis_icon_fg),
                                 contentDescription = "Jarvis logo",
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .size(250.dp)
+                                    .size(230.dp)
                                     .clip(CircleShape)
                                     .graphicsLayer {
                                         val scale = if (active) pulse else 1f
