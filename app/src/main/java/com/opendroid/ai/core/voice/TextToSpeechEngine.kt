@@ -74,31 +74,73 @@ class TextToSpeechEngine(
         if (status == TextToSpeech.SUCCESS) {
             val engine = tts ?: return
             // Jarvis speaks Tamil (India). If the Tamil voice data is missing on this phone,
-            // fall back to the phone's default language so speech never goes silent.
+            // fall back to Indian English, then the phone's default language, so speech never goes silent.
             var result = engine.setLanguage(Locale.forLanguageTag("ta-IN"))
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                result = engine.setLanguage(Locale.forLanguageTag("en-IN"))
+            }
             if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
                 result = engine.setLanguage(Locale.getDefault())
             }
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isInitialized = true
-                // Slightly deeper and calmer, closer to a male Jarvis style.
-                engine.setPitch(0.8f)
+                // Deeper, calmer voice, closer to a male Jarvis style.
+                engine.setPitch(0.72f)
                 engine.setSpeechRate(0.95f)
             }
         }
+    }
+
+    /** Text with Tamil letters is read by the Tamil voice; Tanglish / English by Indian English. */
+    private fun hasTamil(text: String): Boolean = text.any { it in '\u0B80'..'\u0BFF' }
+
+    /** Picks the Tamil or Indian English voice for [text], preferring a male-sounding voice. */
+    private fun prepareVoiceFor(engine: TextToSpeech, text: String) {
+        val tag = if (hasTamil(text)) "ta" else "en"
+        val locale = if (tag == "ta") Locale.forLanguageTag("ta-IN") else Locale.forLanguageTag("en-IN")
+        try {
+            var r = engine.setLanguage(locale)
+            if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
+                r = engine.setLanguage(Locale.forLanguageTag("en-IN"))
+            }
+            val voices = engine.voices?.filter {
+                it.locale.language == engine.voice?.locale?.language && !it.isNetworkConnectionRequired
+            }.orEmpty()
+            val male = voices.firstOrNull { v ->
+                val n = v.name.lowercase()
+                n.contains("male") && !n.contains("female")
+            }
+            if (male != null) engine.voice = male
+        } catch (e: Exception) {
+            // Keep whatever voice is already set.
+        }
+    }
+
+    /** Removes JSON / code blocks and symbols so Jarvis only speaks the human sentence. */
+    private fun cleanForSpeech(raw: String): String {
+        var s = raw.replace(Regex("```[\\s\\S]*?```"), " ")
+        s = s.replace("```", " ")
+        s = s.replace(Regex("\\[\\s*\\{[\\s\\S]*\\}\\s*\\]"), " ")
+        s = s.replace(Regex("[*_#`]+"), "")
+        return s.replace(Regex("\\s+"), " ").trim()
     }
 
     /**
      * Speaks [text] and returns [utteranceId], which [onCompletionListener] receives when
      * this utterance, and not some other one, finishes.
      */
-    fun speak(text: String, utteranceId: String = UUID.randomUUID().toString()): String {
+    fun speak(rawText: String, utteranceId: String = UUID.randomUUID().toString()): String {
+        val text = cleanForSpeech(rawText)
+        if (text.isBlank()) {
+            mainHandler.post { onCompletionListener?.invoke(utteranceId) }
+            return utteranceId
+        }
         val speechGeneration = generation.get()
         scope.launch {
             staleClipCleanup.join()
             val config = settingsRepository.llmConfig.first()
             val apiKey = config.elevenLabsApiKey
-            val voiceId = config.elevenLabsVoiceId.ifEmpty { "21m00Tcm4TlvDq8ikWAM" } // default Rachel voice
+            val voiceId = config.elevenLabsVoiceId.ifEmpty { "pNInz6obpgDQGcFmaJgB" } // default Adam (male) voice
 
             if (apiKey.isNotEmpty()) {
                 try {
@@ -113,6 +155,7 @@ class TextToSpeechEngine(
             // ElevenLabs fetch fails, and must not turn into local speech.
             if (isInitialized && generation.get() == speechGeneration) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    tts?.let { prepareVoiceFor(it, text) }
                     tts?.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId)
                 }
             }
