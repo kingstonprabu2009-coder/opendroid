@@ -12,7 +12,7 @@ android {
     compileSdk 36
 
     defaultConfig {
-        applicationId "com.opendroid.aiagent"
+        applicationId "com.opendroid.ai"
         minSdk 26
         targetSdk 36
         versionCode 10
