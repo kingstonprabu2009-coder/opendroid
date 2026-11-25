@@ -69,7 +69,7 @@ object OllamaTimeout {
 fun LLMConfig.resolvedOllamaTimeoutSeconds(): Int = OllamaTimeout.clamp(ollamaTimeoutSeconds)
 
 fun LLMConfig.resolvedAutoMode(): AutoMode =
-    autoMode ?: if (autoConfirmPlans) AutoMode.YOLO else AutoMode.OFF
+    autoMode ?: if (autoConfirmPlans) AutoMode.YOLO else AutoMode.AUTO
 
 fun LLMConfig.effectiveGrantedActions(): Map<String, Long> =
     grantedActions ?: AutoMode.DEFAULT_GRANTS.associateWith { 0L }
