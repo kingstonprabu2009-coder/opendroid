@@ -803,6 +803,7 @@ fun SettingsScreen(
                                             .setTitle("JARVIS Qwen 2.5 7B")
                                             .setDescription("Downloading approximately 4.68 GB")
                                             .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                            .setAllowedOverMetered(true)
                                             .setAllowedOverRoaming(false)
                                             .setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")
                                         downloadId = manager.enqueue(request)
