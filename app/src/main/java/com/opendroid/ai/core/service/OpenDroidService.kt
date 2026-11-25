@@ -275,7 +275,7 @@ class OpenDroidService : Service() {
         val id = UUID.randomUUID().toString()
         val done = CompletableDeferred<Unit>()
         greetingDone = id to done
-        textToSpeechEngine.speak("சொல்லுங்க சார்", utteranceId = id)
+        textToSpeechEngine.speak("Sollunga sir", utteranceId = id)
         // Open the mic only after the greeting has finished, so it is never cut off.
         listenJob = serviceScope.launch {
             withTimeoutOrNull(5000) { done.await() }

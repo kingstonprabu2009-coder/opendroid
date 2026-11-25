@@ -66,12 +66,21 @@ class TextToSpeechEngine(
                     onCompletionListener?.invoke(utteranceId.orEmpty())
                 }
             }
+            override fun onError(utteranceId: String?, errorCode: Int) {
+                mainHandler.post { showProblem("Jarvis voice error $errorCode") }
+                onError(utteranceId)
+            }
+            @Deprecated("Deprecated in Java")
             override fun onError(utteranceId: String?) {
                 mainHandler.post {
                     onCompletionListener?.invoke(utteranceId.orEmpty())
                 }
             }
         })
+    }
+
+    private fun showProblem(message: String) {
+        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
     }
 
     override fun onInit(status: Int) {
@@ -93,6 +102,13 @@ class TextToSpeechEngine(
             }
             if (result != TextToSpeech.LANG_MISSING_DATA && result != TextToSpeech.LANG_NOT_SUPPORTED) {
                 isInitialized = true
+                // Play on the media volume.
+                engine.setAudioAttributes(
+                    android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build()
+                )
                 // Deeper, calmer voice, closer to a male Jarvis style.
                 engine.setPitch(0.72f)
                 engine.setSpeechRate(0.95f)
@@ -103,7 +119,7 @@ class TextToSpeechEngine(
     /** Text with Tamil letters is read by the Tamil voice; Tanglish / English by Indian English. */
     private fun hasTamil(text: String): Boolean = text.any { it in '\u0B80'..'\u0BFF' }
 
-    /** Picks the Tamil or Indian English voice for [text], preferring a male-sounding voice. */
+    /** Picks the Tamil or Indian English voice for [text]. */
     private fun prepareVoiceFor(engine: TextToSpeech, text: String) {
         val tag = if (hasTamil(text)) "ta" else "en"
         val locale = if (tag == "ta") Locale.forLanguageTag("ta-IN") else Locale.forLanguageTag("en-IN")
@@ -112,14 +128,6 @@ class TextToSpeechEngine(
             if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
                 r = engine.setLanguage(Locale.forLanguageTag("en-IN"))
             }
-            val voices = engine.voices?.filter {
-                it.locale.language == engine.voice?.locale?.language && !it.isNetworkConnectionRequired
-            }.orEmpty()
-            val male = voices.firstOrNull { v ->
-                val n = v.name.lowercase()
-                n.contains("male") && !n.contains("female")
-            }
-            if (male != null) engine.voice = male
         } catch (e: Exception) {
             // Keep whatever voice is already set.
         }
@@ -173,12 +181,12 @@ class TextToSpeechEngine(
                         started = engine.speak(text, TextToSpeech.QUEUE_FLUSH, null, utteranceId) ==
                             TextToSpeech.SUCCESS
                     }
+                    val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+                    if (started && audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) {
+                        showProblem("Media volume 0-la irukku. Volume ethunga.")
+                    }
                     if (!started) {
-                        android.widget.Toast.makeText(
-                            context,
-                            "Jarvis voice start aagala. Phone Text-to-speech settings check pannunga.",
-                            android.widget.Toast.LENGTH_LONG
-                        ).show()
+                        showProblem("Jarvis voice start aagala. Phone Text-to-speech settings check pannunga.")
                         onCompletionListener?.invoke(utteranceId)
                     }
                 }

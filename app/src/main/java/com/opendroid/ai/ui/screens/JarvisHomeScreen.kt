@@ -8,6 +8,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -28,9 +29,10 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
@@ -78,6 +80,7 @@ import com.opendroid.ai.core.agent.AgentState
 import com.opendroid.ai.core.service.OpenDroidService
 import com.opendroid.ai.core.voice.VoiceSubtitles
 import com.opendroid.ai.core.voice.WakeWordDetector
+import com.opendroid.ai.data.models.ChatMessage
 import com.opendroid.ai.ui.theme.AccentCyan
 import com.opendroid.ai.ui.theme.AccentPurple
 import com.opendroid.ai.ui.theme.AccentRed
@@ -324,20 +327,33 @@ fun JarvisHomeScreen(
                         ),
                         label = "orbShake"
                     )
-                    // One colour at a time: blue, then red, then green.
-                    val colourStep by transition.animateFloat(
-                        initialValue = 0f,
-                        targetValue = 3f,
-                        animationSpec = infiniteRepeatable(tween(7500, easing = LinearEasing)),
-                        label = "orbColour"
-                    )
-                    val glowColors = listOf(Color(0xFF1AA8FF), Color(0xFFFF2D3F), Color(0xFF1FFF6A))
+                    // Colours run only while Jarvis is ON, always starting from cyan blue.
+                    val colourClock = remember { Animatable(0f) }
+                    LaunchedEffect(serviceOn) {
+                        colourClock.snapTo(0f)
+                        if (serviceOn) {
+                            colourClock.animateTo(
+                                3f,
+                                infiniteRepeatable(tween(7500, easing = LinearEasing))
+                            )
+                        }
+                    }
+                    val colourStep = colourClock.value
+                    val glowColors = listOf(Color(0xFF22D3FF), Color(0xFFFF2D3F), Color(0xFF1FFF6A))
                     val step = colourStep.toInt() % 3
                     // Hold each colour, then fade smoothly into the next one.
                     val fade = ((colourStep % 1f - 0.65f) / 0.35f).coerceIn(0f, 1f)
                     val glowColor = lerp(glowColors[step], glowColors[(step + 1) % 3], fade)
-                    val heard by VoiceSubtitles.heard.collectAsState()
                     val reply by VoiceSubtitles.reply.collectAsState()
+                    val history by chatViewModel.conversationHistory.collectAsState()
+                    val spoken = history.filter { it.text.isNotBlank() }
+                    // Do not show a reply twice once it is in the saved history.
+                    val note = if (spoken.any { it.text == reply }) "" else reply
+                    val historyState = rememberLazyListState()
+                    val lines = spoken.size + if (note.isNotBlank()) 1 else 0
+                    LaunchedEffect(lines, spoken.lastOrNull()?.text) {
+                        if (lines > 0) historyState.animateScrollToItem(lines - 1)
+                    }
                     val speaking = agentState is AgentState.Speaking
                     val orbColor = when (agentState) {
                         is AgentState.Listening -> AccentRed
@@ -360,18 +376,18 @@ fun JarvisHomeScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
-                            .verticalScroll(rememberScrollState())
-                            .padding(bottom = 20.dp),
+                            .padding(bottom = 8.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier.size(320.dp),
+                            modifier = Modifier.size(270.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             // Light that starts exactly at the orb's outer ring and fades out.
-                            Canvas(Modifier.fillMaxSize()) {
-                                val orb = 100.dp.toPx() * (if (active) pulse else 1f)
+                            // No glow until Jarvis is switched ON.
+                            if (serviceOn) Canvas(Modifier.fillMaxSize()) {
+                                val orb = 85.dp.toPx() * (if (active) pulse else 1f)
                                 val outer = size.minDimension / 2f
                                 val edge = orb / outer
                                 val strength = (if (active) 0.85f else 0.8f) + breath * 0.15f
@@ -394,7 +410,7 @@ fun JarvisHomeScreen(
                             // so it cannot hide the glow.
                             Box(
                                 modifier = Modifier
-                                    .size(200.dp)
+                                    .size(170.dp)
                                     .graphicsLayer {
                                         val scale = if (active) pulse else 1f
                                         scaleX = scale
@@ -407,11 +423,11 @@ fun JarvisHomeScreen(
                                 contentAlignment = Alignment.Center
                             ) {
                                 Image(
-                                    painter = painterResource(R.drawable.jarvis_icon_fg),
+                                    painter = painterResource(R.drawable.jarvis_orb),
                                     contentDescription = "Jarvis logo",
                                     contentScale = ContentScale.Crop,
                                     // Recolours the blue ring art to match the glow.
-                                    colorFilter = ColorFilter.colorMatrix(
+                                    colorFilter = if (!serviceOn) null else ColorFilter.colorMatrix(
                                         ColorMatrix(
                                             floatArrayOf(
                                                 0.7f * (1f - glowColor.red), 0f, glowColor.red, 0f, 0f,
@@ -421,7 +437,7 @@ fun JarvisHomeScreen(
                                             )
                                         )
                                     ),
-                                    modifier = Modifier.requiredSize(302.dp)
+                                    modifier = Modifier.requiredSize(210.dp)
                                 )
                             }
                         }
@@ -434,26 +450,37 @@ fun JarvisHomeScreen(
                             letterSpacing = 2.sp
                         )
 
-                        // Subtitles under the orb.
-                        if (heard.isNotBlank()) {
-                            Spacer(Modifier.height(14.dp))
-                            Text(
-                                "Neenga: $heard",
-                                color = TextSecondary,
-                                fontSize = 14.sp,
-                                textAlign = TextAlign.Center
-                            )
+                        // Conversation history under the orb; swipe up to read older lines.
+                        Spacer(Modifier.height(8.dp))
+                        LazyColumn(
+                            state = historyState,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            items(spoken) { message ->
+                                val mine = message.sender == ChatMessage.Sender.USER
+                                Text(
+                                    (if (mine) "You: " else "Jarvis: ") + message.text,
+                                    color = if (mine) TextSecondary else TextPrimary,
+                                    fontSize = 15.sp,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                            // Short notes that are not saved, e.g. "Sollunga sir".
+                            if (note.isNotBlank()) {
+                                item {
+                                    Text(
+                                        "Jarvis: $note",
+                                        color = TextPrimary,
+                                        fontSize = 15.sp,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
                         }
-                        if (reply.isNotBlank()) {
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "Jarvis: $reply",
-                                color = TextPrimary,
-                                fontSize = 16.sp,
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                        Spacer(Modifier.height(28.dp))
+                        Spacer(Modifier.height(8.dp))
 
                         Button(
                             onClick = {
@@ -482,8 +509,7 @@ fun JarvisHomeScreen(
                             }
                         }
 
-                        Spacer(Modifier.height(12.dp))
-                        Text(
+                        if (lines == 0) Text(
                             text = if (serviceOn) {
                                 "Say “Jarvis” to wake me up, or tap to speak."
                             } else {
