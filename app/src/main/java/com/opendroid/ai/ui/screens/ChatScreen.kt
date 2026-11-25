@@ -74,7 +74,9 @@ import java.util.Locale
 fun ChatScreen(
     viewModel: ChatViewModel,
     modifier: Modifier = Modifier,
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    // Plain typed chat: no microphone, no voice status.
+    textOnly: Boolean = false
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -83,7 +85,9 @@ fun ChatScreen(
     // in a DIFFERENT chat (safe since the pinned-session fix: it keeps writing there,
     // not wherever the user has navigated to) must never be displayed as if it were
     // happening here. See ChatViewModel.visibleAgentState.
-    val visibleAgentState by viewModel.visibleAgentState.collectAsState()
+    val rawAgentState by viewModel.visibleAgentState.collectAsState()
+    val visibleAgentState: AgentState =
+        if (textOnly && rawAgentState is AgentState.Listening) AgentState.Idle else rawAgentState
     val chatError by viewModel.chatError.collectAsState()
     // Id of whichever chat (if any) has a task actively running, regardless of which
     // chat is currently displayed - drives the chat-picker's "still running" indicator.
@@ -203,7 +207,7 @@ fun ChatScreen(
                 title = {
                     Column {
                         Text(
-                            text = "JARVIS",
+                            text = if (textOnly) "Chat" else "JARVIS",
                             fontFamily = FontFamily.Monospace,
                             fontWeight = FontWeight.Bold,
                             color = TextPrimary,
@@ -495,52 +499,54 @@ fun ChatScreen(
                         modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        // Floating Orb for Speech
-                        FloatingOrb(
-                            isListening = isListening,
-                            agentState = visibleAgentState,
-                            onClick = {
-                                if (isListening) {
-                                    // True cancel: no final result will be delivered for this
-                                    // session, so whatever partial transcript we already have is
-                                    // handed back to the input field instead of being lost.
-                                    speechRecognizer.cancel()
-                                    isListening = false
-                                    mergeDictatedText(transcriptionText)
-                                    transcriptionText = ""
-                                } else {
-                                    val audioPerm = ContextCompat.checkSelfPermission(
-                                        context,
-                                        Manifest.permission.RECORD_AUDIO
-                                    )
-                                    if (audioPerm == PackageManager.PERMISSION_GRANTED) {
-                                        isListening = true
-                                        voiceError = null
+                        if (!textOnly) {
+                            // Floating Orb for Speech
+                            FloatingOrb(
+                                isListening = isListening,
+                                agentState = visibleAgentState,
+                                onClick = {
+                                    if (isListening) {
+                                        // True cancel: no final result will be delivered for this
+                                        // session, so whatever partial transcript we already have is
+                                        // handed back to the input field instead of being lost.
+                                        speechRecognizer.cancel()
+                                        isListening = false
+                                        mergeDictatedText(transcriptionText)
                                         transcriptionText = ""
-                                        speechRecognizer.startListening(
-                                            onResult = { text ->
-                                                isListening = false
-                                                mergeDictatedText(text)
-                                                transcriptionText = ""
-                                            },
-                                            onPartialResult = { partial ->
-                                                transcriptionText = partial
-                                            },
-                                            onError = { err ->
-                                                isListening = false
-                                                mergeDictatedText(transcriptionText)
-                                                transcriptionText = ""
-                                                voiceError = err
-                                            }
-                                        )
                                     } else {
-                                        recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        val audioPerm = ContextCompat.checkSelfPermission(
+                                            context,
+                                            Manifest.permission.RECORD_AUDIO
+                                        )
+                                        if (audioPerm == PackageManager.PERMISSION_GRANTED) {
+                                            isListening = true
+                                            voiceError = null
+                                            transcriptionText = ""
+                                            speechRecognizer.startListening(
+                                                onResult = { text ->
+                                                    isListening = false
+                                                    mergeDictatedText(text)
+                                                    transcriptionText = ""
+                                                },
+                                                onPartialResult = { partial ->
+                                                    transcriptionText = partial
+                                                },
+                                                onError = { err ->
+                                                    isListening = false
+                                                    mergeDictatedText(transcriptionText)
+                                                    transcriptionText = ""
+                                                    voiceError = err
+                                                }
+                                            )
+                                        } else {
+                                            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
                                     }
                                 }
-                            }
-                        )
+                            )
 
-                        Spacer(modifier = Modifier.width(12.dp))
+                            Spacer(modifier = Modifier.width(12.dp))
+                        }
 
                         // Text Input Field / Voice Waveform Area
                         Box(
@@ -565,7 +571,7 @@ fun ChatScreen(
                                 TextField(
                                     value = inputQuery,
                                     onValueChange = { inputQuery = it; voiceError = null },
-                                    placeholder = { Text("Ask Jarvis to run an autonomous task...", color = TextSecondary, fontSize = 14.sp) },
+                                    placeholder = { Text(if (textOnly) "Message type pannunga" else "Ask Jarvis to run an autonomous task...", color = TextSecondary, fontSize = 14.sp) },
                                     colors = TextFieldDefaults.colors(
                                         focusedContainerColor = Color.Transparent,
                                         unfocusedContainerColor = Color.Transparent,
