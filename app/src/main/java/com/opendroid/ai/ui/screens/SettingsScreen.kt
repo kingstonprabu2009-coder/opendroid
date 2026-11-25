@@ -739,6 +739,46 @@ fun SettingsScreen(
             if (config.activeProvider == "Llama.cpp (Local 7B)") {
                 item {
                     val context = LocalContext.current
+                    val manager = remember(context) { context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager }
+                    val prefs = remember(context) { context.getSharedPreferences("jarvis_qwen_download", Context.MODE_PRIVATE) }
+                    var downloadId by remember { mutableLongStateOf(prefs.getLong("download_id", -1L)) }
+                    var downloadedBytes by remember { mutableLongStateOf(0L) }
+                    var totalBytes by remember { mutableLongStateOf(-1L) }
+                    var downloadStatus by remember { mutableIntStateOf(android.app.DownloadManager.STATUS_PENDING) }
+                    var downloadReason by remember { mutableIntStateOf(0) }
+                    var downloadMessage by remember { mutableStateOf("Model not downloaded") }
+                    LaunchedEffect(downloadId) {
+                        while (downloadId >= 0L) {
+                            val cursor = runCatching { manager.query(android.app.DownloadManager.Query().setFilterById(downloadId)) }.getOrNull()
+                            if (cursor == null) {
+                                downloadMessage = "Download status unavailable. You can retry."
+                                break
+                            }
+                            cursor.use {
+                                if (it.moveToFirst()) {
+                                    downloadStatus = it.getInt(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
+                                    downloadReason = it.getInt(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_REASON))
+                                    downloadedBytes = it.getLong(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+                                    totalBytes = it.getLong(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+                                    downloadMessage = when (downloadStatus) {
+                                        android.app.DownloadManager.STATUS_PENDING -> "Waiting for network / queued"
+                                        android.app.DownloadManager.STATUS_RUNNING -> "Downloading"
+                                        android.app.DownloadManager.STATUS_PAUSED -> "Paused by Android (reason $downloadReason)"
+                                        android.app.DownloadManager.STATUS_SUCCESSFUL -> "Download complete — validating GGUF file"
+                                        android.app.DownloadManager.STATUS_FAILED -> "Download failed (reason $downloadReason). Tap Retry."
+                                        else -> "Checking download status"
+                                    }
+                                } else {
+                                    downloadMessage = "Download record not found. Tap Retry."
+                                    downloadId = -1L
+                                    prefs.edit().remove("download_id").apply()
+                                }
+                            }
+                            if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL || downloadStatus == android.app.DownloadManager.STATUS_FAILED) break
+                            kotlinx.coroutines.delay(1000)
+                        }
+                    }
+                    val percent = if (totalBytes > 0L) (downloadedBytes * 100L / totalBytes).toInt().coerceIn(0, 100) else 0
                     Card(
                         modifier = Modifier.fillMaxWidth().border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
                         colors = CardDefaults.cardColors(containerColor = CardBackground)
@@ -746,25 +786,43 @@ fun SettingsScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("LOCAL QWEN 2.5 7B MODEL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Q4_K_M model download is approximately 4.68 GB. Keep at least 5.5 GB free storage and use Wi-Fi. 7B inference may exceed the available RAM on some 6 GB phones; JARVIS checks memory and stops safely.", fontSize = 12.sp, color = TextSecondary)
+                            Text("Q4_K_M model is approximately 4.68 GB. Keep at least 5.5 GB free and prefer Wi-Fi. Android may use a metered connection if your Wi-Fi is marked metered. 7B inference may exceed available RAM on some 6 GB phones; JARVIS checks memory and stops safely.", fontSize = 12.sp, color = TextSecondary)
                             Spacer(modifier = Modifier.height(12.dp))
-                            Button(onClick = {
-                                try {
-                                    val request = android.app.DownloadManager.Request(android.net.Uri.parse("https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"))
-                                        .setTitle("JARVIS Qwen 2.5 7B")
-                                        .setDescription("Downloading approximately 4.68 GB; Wi-Fi only")
-                                        .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                        .setAllowedOverMetered(false)
-                                        .setAllowedOverRoaming(false)
-                                        .setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")
-                                    val manager = context.getSystemService(android.content.Context.DOWNLOAD_SERVICE) as android.app.DownloadManager
-                                    manager.enqueue(request)
-                                    android.widget.Toast.makeText(context, "Qwen 7B download started. Check Android notifications.", android.widget.Toast.LENGTH_LONG).show()
-                                } catch (error: Exception) {
-                                    android.widget.Toast.makeText(context, "Download could not start: ${error.localizedMessage}", android.widget.Toast.LENGTH_LONG).show()
+                            Text(downloadMessage, fontSize = 12.sp, color = TextPrimary)
+                            if (downloadId >= 0L && (downloadStatus == android.app.DownloadManager.STATUS_RUNNING || downloadStatus == android.app.DownloadManager.STATUS_PAUSED || downloadStatus == android.app.DownloadManager.STATUS_PENDING)) {
+                                LinearProgressIndicator(progress = { if (totalBytes > 0L) percent / 100f else 0f }, modifier = Modifier.fillMaxWidth())
+                                Text(if (totalBytes > 0L) "$percent%  (${downloadedBytes / 1_048_576} / ${totalBytes / 1_048_576} MB)" else "Waiting for download size…", fontSize = 11.sp, color = TextSecondary)
+                            }
+                            if (downloadStatus == android.app.DownloadManager.STATUS_FAILED) {
+                                Text("Android download error code: $downloadReason", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                                Button(modifier = Modifier.weight(1f), enabled = downloadId < 0L || downloadStatus == android.app.DownloadManager.STATUS_FAILED, onClick = {
+                                    try {
+                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse("https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"))
+                                            .setTitle("JARVIS Qwen 2.5 7B")
+                                            .setDescription("Downloading approximately 4.68 GB")
+                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                            .setAllowedOverRoaming(false)
+                                            .setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")
+                                        downloadId = manager.enqueue(request)
+                                        prefs.edit().putLong("download_id", downloadId).apply()
+                                        downloadedBytes = 0L
+                                        totalBytes = -1L
+                                        downloadStatus = android.app.DownloadManager.STATUS_PENDING
+                                        downloadMessage = "Download queued"
+                                    } catch (error: Exception) {
+                                        downloadMessage = "Could not start: ${error.localizedMessage ?: "unknown error"}"
+                                    }
+                                }) { Text(if (downloadStatus == android.app.DownloadManager.STATUS_FAILED) "Retry download" else "Download Qwen 7B") }
+                                if (downloadId >= 0L && downloadStatus != android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                                    OutlinedButton(onClick = {
+                                        manager.remove(downloadId)
+                                        downloadId = -1L
+                                        prefs.edit().remove("download_id").apply()
+                                        downloadMessage = "Download cancelled"
+                                    }) { Text("Cancel") }
                                 }
-                            }, modifier = Modifier.fillMaxWidth()) {
-                                Text("Download Qwen 7B (4.68 GB)")
                             }
                         }
                     }

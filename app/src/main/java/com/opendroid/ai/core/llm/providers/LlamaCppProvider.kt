@@ -60,7 +60,6 @@ class LlamaCppProvider @Inject constructor(private val context: Context) : LLMPr
             .setTitle("JARVIS Qwen 2.5 7B model")
             .setDescription("Downloading approximately 4.68 GB. Wi-Fi recommended.")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            .setAllowedOverMetered(false)
             .setAllowedOverRoaming(false)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, MODEL_FILE)
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
