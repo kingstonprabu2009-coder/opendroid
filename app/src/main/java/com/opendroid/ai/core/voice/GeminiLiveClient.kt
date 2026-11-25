@@ -33,7 +33,8 @@ class GeminiLiveClient(
     private val context: Context,
     private val onStatus: (String) -> Unit,
     private val onPhoneTask: (String) -> Unit,
-    private val onClosed: (String) -> Unit
+    private val onClosed: (String) -> Unit,
+    private val onStopRequested: () -> Unit = {}
 ) {
     private val http = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -48,6 +49,9 @@ class GeminiLiveClient(
     private var playThread: Thread? = null
     private val playQueue = LinkedBlockingQueue<ByteArray>()
     @Volatile private var socketGen = 0
+    @Volatile private var speakingNow = false
+    @Volatile private var lastActive = 0L
+    private var idleMs = 0L
     private var track: AudioTrack? = null
     private var aec: AcousticEchoCanceler? = null
     private var ns: NoiseSuppressor? = null
@@ -60,9 +64,11 @@ class GeminiLiveClient(
 
     val isRunning: Boolean get() = running
 
-    fun start(apiKey: String, voiceName: String = "Charon") {
+    fun start(apiKey: String, voiceName: String = "Charon", idleCloseMs: Long = 0L) {
         if (running) return
         running = true
+        idleMs = idleCloseMs
+        lastActive = System.currentTimeMillis()
         apiKeyHeld = apiKey
         voiceHeld = voiceName
         modelIndex = 0
@@ -129,6 +135,17 @@ class GeminiLiveClient(
         onClosed(reason)
     }
 
+    /** Ends the call from inside (idle timeout) and tells the service. */
+    private fun closeWith(reason: String) {
+        if (!running) return
+        running = false
+        ready = false
+        try { ws?.close(1000, "idle") } catch (_: Exception) {}
+        ws = null
+        closeAudioOutput()
+        onClosed(reason)
+    }
+
     private fun setupMessage(model: String): JSONObject {
         val phoneTool = JSONObject()
             .put("name", "run_phone_task")
@@ -139,6 +156,9 @@ class GeminiLiveClient(
                     .put("type", "STRING")
                     .put("description", "What to do, in the user's own words.")))
                 .put("required", JSONArray().put("task")))
+        val stopTool = JSONObject()
+            .put("name", "stop_jarvis")
+            .put("description", "Switch Jarvis itself completely off. Call this ONLY when the user clearly asks to turn Jarvis off (stop Jarvis, Jarvis stop, turn off, switch off, nillu Jarvis, nirutthu). Never call it for stop talking, wait, or cancel.")
         val setup = JSONObject()
             .put("model", "models/$model")
             .put("generationConfig", JSONObject()
@@ -146,7 +166,13 @@ class GeminiLiveClient(
                 .put("speechConfig", JSONObject().put("voiceConfig", JSONObject()
                     .put("prebuiltVoiceConfig", JSONObject().put("voiceName", voiceHeld)))))
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM))))
-            .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(phoneTool))))
+            .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(phoneTool).put(stopTool))))
+        // Reply fast: treat ~0.6 s of silence as the end of the user's turn.
+        setup.put("realtimeInputConfig", JSONObject().put("automaticActivityDetection", JSONObject()
+            .put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
+            .put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
+            .put("prefixPaddingMs", 100)
+            .put("silenceDurationMs", 600)))
         return JSONObject().put("setup", setup)
     }
 
@@ -154,6 +180,7 @@ class GeminiLiveClient(
         val msg = try { JSONObject(text) } catch (_: Exception) { return }
         if (msg.has("setupComplete")) {
             ready = true
+            lastActive = System.currentTimeMillis()
             onStatus("Listening")
             startMic()
             return
@@ -161,6 +188,7 @@ class GeminiLiveClient(
         msg.optJSONObject("serverContent")?.let { sc ->
             if (sc.optBoolean("interrupted", false)) {
                 flushOutput()
+                speakingNow = false
                 onStatus("Listening")
             }
             val parts = sc.optJSONObject("modelTurn")?.optJSONArray("parts")
@@ -170,21 +198,23 @@ class GeminiLiveClient(
                     val data = inline.optString("data")
                     if (data.isNotEmpty()) {
                         gotAudioThisSession = true
+                        lastActive = System.currentTimeMillis()
                         val pcm = Base64.decode(data, Base64.DEFAULT)
                         playQueue.offer(pcm) // played by playThread so this socket thread never blocks
-                        onStatus("Speaking")
+                        if (!speakingNow) { speakingNow = true; onStatus("Speaking") }
                     }
                 }
             }
-            if (sc.optBoolean("turnComplete", false)) onStatus("Listening")
         }
         msg.optJSONObject("toolCall")?.optJSONArray("functionCalls")?.let { calls ->
+            lastActive = System.currentTimeMillis()
             val responses = JSONArray()
             for (i in 0 until calls.length()) {
                 val c = calls.getJSONObject(i)
                 if (c.optString("name") == "run_phone_task") {
                     onPhoneTask(c.optJSONObject("args")?.optString("task").orEmpty())
                 }
+                if (c.optString("name") == "stop_jarvis") { onStopRequested() }
                 responses.put(JSONObject()
                     .put("id", c.optString("id"))
                     .put("name", c.optString("name"))
@@ -217,7 +247,12 @@ class GeminiLiveClient(
         playThread = Thread {
             try {
                 while (running && !Thread.currentThread().isInterrupted) {
-                    val chunk = playQueue.take()
+                    val chunk = playQueue.poll(300, TimeUnit.MILLISECONDS)
+                    if (chunk == null) {
+                        // Queue ran dry: Jarvis has really finished talking.
+                        if (speakingNow) { speakingNow = false; onStatus("Listening") }
+                        continue
+                    }
                     track?.write(chunk, 0, chunk.size)
                 }
             } catch (_: Exception) {}
@@ -261,6 +296,11 @@ class GeminiLiveClient(
                 while (running && ready && !Thread.currentThread().isInterrupted) {
                     val n = rec.read(buf, 0, buf.size)
                     if (n <= 0) break
+                    // Battery saver: nobody has talked for a while, so hang up the live call.
+                    if (idleMs > 0 && !speakingNow && System.currentTimeMillis() - lastActive > idleMs) {
+                        closeWith("Idle, call ended to save battery")
+                        break
+                    }
                     val b64 = Base64.encodeToString(buf, 0, n, Base64.NO_WRAP)
                     ws?.send(JSONObject().put("realtimeInput", JSONObject().put("audio",
                         JSONObject().put("data", b64).put("mimeType", "audio/pcm;rate=16000"))).toString())

@@ -1791,6 +1791,18 @@ fun SettingsScreen(
                                         voicePrefs.edit().putBoolean("live_gemini", it).apply()
                                     })
                                 }
+                                var saverOn by remember { mutableStateOf(voicePrefs.getBoolean("battery_saver", true)) }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Text("Battery saver (hang up live call after 40 s silence)", fontSize = 13.sp, color = TextPrimary)
+                                    Switch(checked = saverOn, onCheckedChange = {
+                                        saverOn = it
+                                        voicePrefs.edit().putBoolean("battery_saver", it).apply()
+                                    })
+                                }
                                 var bargeOn by remember { mutableStateOf(voicePrefs.getBoolean("barge_in", true)) }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

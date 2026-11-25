@@ -324,15 +324,23 @@ fun JarvisHomeScreen(
                         ),
                         label = "orbShake"
                     )
-                    // Colours run only while Jarvis is ON, always starting from cyan blue.
+                    val liveSpeaking by VoiceSubtitles.liveSpeaking.collectAsState()
+                    val speaking = agentState is AgentState.Speaking || liveSpeaking
+                    // Glow cycles cyan -> red -> green only while Jarvis is really speaking;
+                    // otherwise it rests on cyan blue. It eases back to cyan when speech ends.
                     val colourClock = remember { Animatable(0f) }
-                    LaunchedEffect(serviceOn) {
-                        colourClock.snapTo(0f)
-                        if (serviceOn) {
+                    LaunchedEffect(serviceOn, speaking) {
+                        if (serviceOn && speaking) {
+                            colourClock.snapTo(colourClock.value % 3f)
                             colourClock.animateTo(
-                                3f,
-                                infiniteRepeatable(tween(7500, easing = LinearEasing))
+                                colourClock.value + 3f,
+                                infiniteRepeatable(tween(4200, easing = LinearEasing))
                             )
+                        } else {
+                            val rest = colourClock.value % 3f
+                            colourClock.snapTo(rest)
+                            if (rest > 0.01f) colourClock.animateTo(3f, tween(500, easing = LinearEasing))
+                            colourClock.snapTo(0f)
                         }
                     }
                     val colourStep = colourClock.value
@@ -351,7 +359,6 @@ fun JarvisHomeScreen(
                     LaunchedEffect(lines, spoken.lastOrNull()?.text) {
                         if (lines > 0) historyState.animateScrollToItem(lines - 1)
                     }
-                    val speaking = agentState is AgentState.Speaking
                     val orbColor = when (agentState) {
                         is AgentState.Listening -> AccentRed
                         is AgentState.Thinking -> AccentPurple

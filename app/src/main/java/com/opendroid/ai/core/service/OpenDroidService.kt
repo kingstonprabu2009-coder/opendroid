@@ -114,14 +114,7 @@ class OpenDroidService : Service() {
          * from the background, e.g. right after a phone restart).
          */
         fun resumeIfWanted(context: Context) {
-            val wanted = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .getBoolean(KEY_WANTED, false)
-            val micGranted = androidx.core.content.ContextCompat.checkSelfPermission(
-                context, android.Manifest.permission.RECORD_AUDIO
-            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
-            if (wanted && micGranted && !_isRunning.value) {
-                start(context)
-            }
+            // Manual start only: Jarvis never switches itself on when the app opens.
         }
     }
 
@@ -313,10 +306,14 @@ class OpenDroidService : Service() {
             agentLoop.setAgentState(AgentState.Listening)
             live = com.opendroid.ai.core.voice.GeminiLiveClient(
                 context = this@OpenDroidService,
-                onStatus = { st -> serviceScope.launch { VoiceSubtitles.reply.value = st } },
+                onStatus = { st -> serviceScope.launch {
+                        VoiceSubtitles.reply.value = st
+                        VoiceSubtitles.liveSpeaking.value = st == "Speaking"
+                    } },
                 onPhoneTask = { task ->
                     serviceScope.launch { if (task.isNotBlank()) agentLoop.processQuery(task, this@OpenDroidService) }
                 },
+                onStopRequested = { serviceScope.launch { endLive(); handleBye() } },
                 onClosed = { reason ->
                     serviceScope.launch {
                         VoiceSubtitles.reply.value = reason
@@ -324,12 +321,16 @@ class OpenDroidService : Service() {
                         startWakeWordDetection()
                     }
                 }
-            ).also { it.start(key) }
+            ).also {
+                val saver = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("battery_saver", true)
+                it.start(key, idleCloseMs = if (saver) 40_000L else 0L)
+            }
         }
         return true
     }
 
     private fun endLive() {
+        VoiceSubtitles.liveSpeaking.value = false
         live?.stop()
         live = null
         conversationActive = false
@@ -425,7 +426,22 @@ class OpenDroidService : Service() {
             "bye bye jarvis",
             "goodbye jarvis",
             "பை",
-            "பை பை"
+            "பை பை",
+            "stop jarvis",
+            "jarvis stop",
+            "turn off",
+            "turn off jarvis",
+            "switch off",
+            "switch off jarvis",
+            "shut down",
+            "nillu",
+            "nirutthu",
+            "nirutu",
+            "ஸ்டாப்",
+            "ஸ்டாப் ஜார்விஸ்",
+            "ஜார்விஸ் ஸ்டாப்",
+            "நிறுத்து",
+            "நில்லு"
         )
     }
 
@@ -477,7 +493,7 @@ class OpenDroidService : Service() {
                 GroqSpeech.Outcome.NoSpeech -> {
                     // Live call: stay on the line through a few quiet rounds, no wake-word restart.
                     silentRounds++
-                    if (conversationActive && silentRounds < 4) {
+                    if (conversationActive && silentRounds < (if (getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("battery_saver", true)) 2 else 4)) {
                         startListeningForQuery()
                     } else {
                         conversationActive = false
@@ -589,7 +605,11 @@ class OpenDroidService : Service() {
             cancelListening()
             stopCurrentSpeech()
             agentLoop.setAgentState(AgentState.Idle)
-            startWakeWordDetection()
+            // Hang up switches Jarvis fully off: notification gone, same as STOP JARVIS.
+            setWanted(this, false)
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
         }
         if (intent?.action == ACTION_CANCEL_LISTEN) conversationActive = false
         if (intent?.action == ACTION_CANCEL_LISTEN &&

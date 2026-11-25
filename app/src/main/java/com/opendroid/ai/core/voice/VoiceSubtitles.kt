@@ -6,6 +6,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 object VoiceSubtitles {
     val heard = MutableStateFlow("")
     val reply = MutableStateFlow("")
+    /** True only while Jarvis's voice is really coming out of the speaker in a live call. */
+    val liveSpeaking = MutableStateFlow(false)
 
     fun clear() {
         heard.value = ""

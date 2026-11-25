@@ -187,6 +187,42 @@ class MediaActions @Inject constructor(
             return Plan(query, subscribe, like, comment)
         }
 
+        /** Reads YouTube's search page and returns the id of the result whose title best matches [query]. */
+        private fun findVideoId(query: String): String? {
+            if (query.isBlank()) return null
+            return try {
+                val client = okhttp3.OkHttpClient.Builder()
+                    .connectTimeout(6, java.util.concurrent.TimeUnit.SECONDS)
+                    .readTimeout(8, java.util.concurrent.TimeUnit.SECONDS)
+                    .build()
+                val req = okhttp3.Request.Builder()
+                    .url("https://www.youtube.com/results?hl=en&search_query=" + URLEncoder.encode(query, "UTF-8"))
+                    .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36")
+                    .header("Accept-Language", "en-US,en;q=0.9")
+                    .header("Cookie", "CONSENT=YES+1; SOCS=CAI")
+                    .build()
+                val html = client.newCall(req).execute().use { it.body?.string().orEmpty() }
+                val idRe = Regex("\"videoRenderer\":\\{\"videoId\":\"([A-Za-z0-9_-]{11})\"")
+                val titleRe = Regex("\"title\":\\{\"runs\":\\[\\{\"text\":\"((?:[^\"\\\\]|\\\\.)*)\"")
+                val words = query.lowercase().split(Regex("\\s+")).filter { it.length > 1 }
+                var bestId: String? = null
+                var bestScore = -1
+                val seen = HashSet<String>()
+                for (m in idRe.findAll(html).take(10)) {
+                    val id = m.groupValues[1]
+                    if (!seen.add(id)) continue
+                    val t = titleRe.find(html, m.range.last)
+                    val title = if (t != null && t.range.first - m.range.last < 2500) t.groupValues[1].lowercase() else ""
+                    val score = words.count { title.contains(it) }
+                    if (score > bestScore) { bestScore = score; bestId = id }
+                }
+                bestId
+            } catch (e: Exception) {
+                Log.e("PlayYoutube", "Video lookup failed: ${e.javaClass.simpleName}")
+                null
+            }
+        }
+
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val plan = plan(params)
             val query = plan.query
@@ -198,16 +234,27 @@ class MediaActions @Inject constructor(
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 if (intent.resolveActivity(context.packageManager) != null) {
-                    context.startActivity(intent)
-                    // Search results only open; tap the video that matches the name so it really plays.
                     val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
                     var tapped = false
-                    if (svc != null) {
-                        var tries = 0
-                        while (!tapped && tries < 12) {
-                            kotlinx.coroutines.delay(1000)
-                            tapped = svc.clickFirstVideoResult(query)
-                            tries++
+                    // Best way: look the video up ourselves and open it directly, so it plays at once.
+                    val videoId = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { findVideoId(query) }
+                    if (videoId != null) {
+                        val watch = Intent(Intent.ACTION_VIEW, "https://www.youtube.com/watch?v=$videoId".toUri()).apply {
+                            setPackage("com.google.android.youtube")
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        }
+                        context.startActivity(watch)
+                        tapped = true
+                    } else {
+                        // Fallback: open the search results and tap the video that matches the name.
+                        context.startActivity(intent)
+                        if (svc != null) {
+                            var tries = 0
+                            while (!tapped && tries < 12) {
+                                kotlinx.coroutines.delay(1000)
+                                tapped = svc.clickFirstVideoResult(query)
+                                tries++
+                            }
                         }
                     }
                     val notes = mutableListOf<String>()
@@ -239,6 +286,9 @@ class MediaActions @Inject constructor(
                     val extra = if (notes.isEmpty()) "" else " (" + notes.joinToString(", ") + ")"
                     if (playbackVerifier.awaitVerifiedPlayback(context, "youtube", query)) {
                         ActionResult(true, (if (query.isNotEmpty()) "Playing '$query' on YouTube!" else "YouTube is playing!") + extra, null)
+                    } else if (tapped) {
+                        // The media-session check needs notification access and can miss it; the video was opened.
+                        ActionResult(true, (if (query.isNotEmpty()) "Opened '$query' on YouTube" else "Opened YouTube") + extra, null)
                     } else if (notes.isNotEmpty()) {
                         ActionResult(true, "YouTube opened" + extra, null)
                     } else {
