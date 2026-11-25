@@ -1,5 +1,6 @@
 package com.opendroid.ai.core.service
 
+import android.annotation.SuppressLint
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,6 +10,7 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import androidx.core.content.edit
 import com.opendroid.ai.core.agent.AgentLoop
 import com.opendroid.ai.core.agent.AgentState
 import com.opendroid.ai.core.agent.PlanApprovalSummary
@@ -59,6 +61,7 @@ class OpenDroidService : Service() {
 
     companion object {
         const val ACTION_TRIGGER_RECORD = "com.opendroid.ai.action.TRIGGER_RECORD"
+        const val ACTION_WAKE = "com.opendroid.ai.action.WAKE"
         private const val CHANNEL_ID = "opendroid_channel"
         private const val NOTIFICATION_ID = 2024
         private val _isRunning = MutableStateFlow(false)
@@ -69,12 +72,21 @@ class OpenDroidService : Service() {
 
         private fun setWanted(context: Context, wanted: Boolean) {
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                .edit().putBoolean(KEY_WANTED, wanted).apply()
+                .edit { putBoolean(KEY_WANTED, wanted) }
         }
 
         fun start(context: Context) {
             setWanted(context, true)
             val intent = Intent(context, OpenDroidService::class.java)
+            context.startForegroundService(intent)
+        }
+
+        /** Switches Jarvis ON and wakes it at once, as if "Jarvis" was heard by the service. */
+        fun startAndWake(context: Context) {
+            setWanted(context, true)
+            val intent = Intent(context, OpenDroidService::class.java).apply {
+                action = ACTION_WAKE
+            }
             context.startForegroundService(intent)
         }
 
@@ -101,6 +113,7 @@ class OpenDroidService : Service() {
         }
     }
 
+    @SuppressLint("WakelockTimeout")
     override fun onCreate() {
         super.onCreate()
 
@@ -298,7 +311,7 @@ class OpenDroidService : Service() {
      */
     private fun handleBye() {
         getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-            .edit().putBoolean(KEY_WANTED, false).apply()
+            .edit { putBoolean(KEY_WANTED, false) }
         wakeWordDetector.stopListening()
         agentLoop.setAgentState(AgentState.Idle)
         textToSpeechEngine.speak("பை சார்")
@@ -364,6 +377,9 @@ class OpenDroidService : Service() {
         if (!foregroundStarted) return START_NOT_STICKY
         if (intent?.action == ACTION_TRIGGER_RECORD) {
             startListeningForQuery()
+        }
+        if (intent?.action == ACTION_WAKE) {
+            onWakeWordHeard()
         }
         return START_STICKY
     }
