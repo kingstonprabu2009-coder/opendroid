@@ -15,6 +15,8 @@ import com.opendroid.ai.core.agent.AgentLoop
 import com.opendroid.ai.core.agent.AgentState
 import com.opendroid.ai.core.agent.PlanApprovalSummary
 import com.opendroid.ai.core.voice.ApprovalListenGate
+import com.opendroid.ai.core.voice.GroqSpeech
+import com.opendroid.ai.core.voice.VoiceSubtitles
 import com.opendroid.ai.core.voice.SpeechRecognitionEngine
 import com.opendroid.ai.core.voice.TextToSpeechEngine
 import com.opendroid.ai.core.voice.VoiceApprovalIntent
@@ -25,7 +27,11 @@ import com.opendroid.ai.data.models.Plan
 import com.opendroid.ai.data.repository.SettingsRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -57,11 +63,16 @@ class OpenDroidService : Service() {
     private val pendingApprovalListen = PendingApprovalListen()
     private val approvalListenGate = ApprovalListenGate()
     private var foregroundStarted = false
+    private val groqSpeech = GroqSpeech()
+    private var listenJob: Job? = null
+    private var wakeResumeJob: Job? = null
+    private var greetingDone: Pair<String, CompletableDeferred<Unit>>? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
         const val ACTION_TRIGGER_RECORD = "com.opendroid.ai.action.TRIGGER_RECORD"
         const val ACTION_WAKE = "com.opendroid.ai.action.WAKE"
+        const val ACTION_CANCEL_LISTEN = "com.opendroid.ai.action.CANCEL_LISTEN"
         private const val CHANNEL_ID = "opendroid_channel"
         private const val NOTIFICATION_ID = 2024
         private val _isRunning = MutableStateFlow(false)
@@ -146,6 +157,7 @@ class OpenDroidService : Service() {
         // Bind Agent Loop TTS: speak only when the user spoke by voice
         agentLoop.onSpeakCallback = { text ->
             if (agentLoop.speakReplies) {
+                VoiceSubtitles.reply.value = text
                 textToSpeechEngine.speak(text)
             } else if (agentLoop.agentState.value is AgentState.Speaking) {
                 agentLoop.setAgentState(AgentState.Idle)
@@ -165,6 +177,7 @@ class OpenDroidService : Service() {
             if (agentLoop.agentState.value is AgentState.Speaking) {
                 agentLoop.setAgentState(AgentState.Idle)
             }
+            greetingDone?.let { (id, done) -> if (id == utteranceId) done.complete(Unit) }
             if (approvalListenGate.onUtteranceDone(utteranceId)) {
                 pendingApprovalListen.take()?.let { planId -> startListeningForApproval(planId) }
             }
@@ -254,14 +267,28 @@ class OpenDroidService : Service() {
     }
 
     private fun onWakeWordHeard() {
-        wakeWordDetector.stopListening()
+        cancelListening()
         stopCurrentSpeech()
         agentLoop.speakReplies = true
-        textToSpeechEngine.speak("சொல்லுங்க சார்")
-        serviceScope.launch {
-            delay(1100)
+        VoiceSubtitles.clear()
+        VoiceSubtitles.reply.value = "Sollunga sir"
+        val id = UUID.randomUUID().toString()
+        val done = CompletableDeferred<Unit>()
+        greetingDone = id to done
+        textToSpeechEngine.speak("சொல்லுங்க சார்", utteranceId = id)
+        // Open the mic only after the greeting has finished, so it is never cut off.
+        listenJob = serviceScope.launch {
+            withTimeoutOrNull(5000) { done.await() }
             startListeningForQuery()
         }
+    }
+
+    /** Stops every pending microphone session. */
+    private fun cancelListening() {
+        listenJob?.cancel()
+        wakeResumeJob?.cancel()
+        wakeWordDetector.stopListening()
+        speechRecognitionEngine.cancel()
     }
 
     /**
@@ -270,12 +297,21 @@ class OpenDroidService : Service() {
      * the wake listener from fighting the reply voice.
      */
     private fun resumeWakeWhenIdle() {
-        serviceScope.launch {
+        wakeResumeJob?.cancel()
+        wakeResumeJob = serviceScope.launch {
             delay(1500)
             var waited = 0
-            while (waited < 60000 && agentLoop.agentState.value !is AgentState.Idle) {
+            while (waited < 60000 && agentLoop.agentState.value !is AgentState.Idle &&
+                agentLoop.agentState.value !is AgentState.Error
+            ) {
                 delay(500)
                 waited += 500
+            }
+            val state = agentLoop.agentState.value
+            if (state is AgentState.Error) {
+                VoiceSubtitles.reply.value = state.message
+                textToSpeechEngine.speak("Mannikkanum sir, oru error vandhuruku.")
+                delay(3500)
             }
             delay(500)
             startWakeWordDetection()
@@ -323,30 +359,74 @@ class OpenDroidService : Service() {
 
     private fun startListeningForQuery() {
         // Temporarily pause wake word to avoid hearing itself
-        wakeWordDetector.stopListening()
+        cancelListening()
         // Tap to speak while Jarvis is talking: cut the old voice first.
         stopCurrentSpeech()
 
         // Set agent state to Listening
         agentLoop.setAgentState(AgentState.Listening)
+        VoiceSubtitles.clear()
 
-        // Start speech recognizer for query input
+        listenJob = serviceScope.launch {
+            val key = settingsRepository.llmConfig.first().apiKeys["Groq"].orEmpty()
+            delay(250) // give the wake recogniser time to release the mic
+            if (key.isBlank()) {
+                listenWithPhone(key)
+                return@launch
+            }
+            val outcome = groqSpeech.listen(key) {
+                serviceScope.launch {
+                    if (agentLoop.agentState.value is AgentState.Listening) {
+                        agentLoop.setAgentState(AgentState.Thinking)
+                    }
+                }
+            }
+            when (outcome) {
+                is GroqSpeech.Outcome.Heard -> handleHeard(outcome.text)
+                GroqSpeech.Outcome.NoSpeech -> {
+                    VoiceSubtitles.reply.value = "Onnum kekkala sir"
+                    agentLoop.setAgentState(AgentState.Idle)
+                    startWakeWordDetection()
+                }
+                is GroqSpeech.Outcome.Failed -> {
+                    VoiceSubtitles.reply.value = "${outcome.reason}. Marubadi sollunga sir."
+                    agentLoop.setAgentState(AgentState.Listening)
+                    listenWithPhone(key)
+                }
+            }
+        }
+    }
+
+    /** Fallback: the phone's own recogniser (no Groq key, or Groq is unreachable). */
+    private fun listenWithPhone(groqKey: String) {
         speechRecognitionEngine.startListening(
             onResult = { heard ->
-                val query = correctTranscript(heard)
-                if (isByeCommand(query)) {
-                    handleBye()
-                } else {
-                    agentLoop.speakReplies = true
-                    agentLoop.processQuery(query, this)
-                    resumeWakeWhenIdle()
+                listenJob = serviceScope.launch {
+                    handleHeard(
+                        if (groqKey.isBlank()) heard else groqSpeech.toTanglish(groqKey, heard)
+                    )
                 }
             },
-            onError = { _ ->
+            onPartialResult = { VoiceSubtitles.heard.value = it },
+            onError = { error ->
+                VoiceSubtitles.reply.value = error
                 agentLoop.setAgentState(AgentState.Idle)
                 startWakeWordDetection()
             }
         )
+    }
+
+    private fun handleHeard(heard: String) {
+        val query = correctTranscript(heard)
+        VoiceSubtitles.heard.value = query
+        VoiceSubtitles.reply.value = ""
+        if (isByeCommand(query)) {
+            handleBye()
+        } else {
+            agentLoop.speakReplies = true
+            agentLoop.processQuery(query, this)
+            resumeWakeWhenIdle()
+        }
     }
 
     /**
@@ -377,6 +457,13 @@ class OpenDroidService : Service() {
         if (!foregroundStarted) return START_NOT_STICKY
         if (intent?.action == ACTION_TRIGGER_RECORD) {
             startListeningForQuery()
+        }
+        if (intent?.action == ACTION_CANCEL_LISTEN &&
+            agentLoop.agentState.value is AgentState.Listening
+        ) {
+            cancelListening()
+            agentLoop.setAgentState(AgentState.Idle)
+            startWakeWordDetection()
         }
         if (intent?.action == ACTION_WAKE) {
             onWakeWordHeard()
