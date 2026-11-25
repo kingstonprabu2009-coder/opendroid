@@ -199,6 +199,31 @@ class OpenDroidAccessibilityService : AccessibilityService() {
         return false
     }
 
+    // --- Generic screen control used by the live voice (works in any app, e.g. CapCut) ---
+
+    fun goBack(): Boolean = performGlobalAction(GLOBAL_ACTION_BACK)
+    fun goHome(): Boolean = performGlobalAction(GLOBAL_ACTION_HOME)
+
+    /** Taps the first visible control whose label or text contains [label]. */
+    fun tapByText(label: String): Boolean {
+        if (label.isBlank()) return false
+        val n = findVisibleNode { d, t -> d.contains(label, true) || t.contains(label, true) } ?: return false
+        return tapNode(n)
+    }
+
+    /** Types into the focused text field, or the first editable one on screen. */
+    fun typeIntoFocused(text: String): Boolean {
+        val root = rootInActiveWindow ?: return false
+        val field = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable } ?: findEditable(root) ?: return false
+        val args = Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+        }
+        return field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+    }
+
+    /** Package of the app that is on screen right now (null if unknown). */
+    fun activePackage(): String? = rootInActiveWindow?.packageName?.toString()
+
     // --- YouTube watch-page helpers (subscribe / like / comment) ---
 
     private fun findVisibleNode(test: (desc: String, text: String) -> Boolean): AccessibilityNodeInfo? {

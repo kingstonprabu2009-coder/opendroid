@@ -243,8 +243,21 @@ class MediaActions @Inject constructor(
                             setPackage("com.google.android.youtube")
                             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                         }
-                        context.startActivity(watch)
+                        // An accessibility service may open apps from the background; a plain service may be blocked.
+                        (svc ?: context).startActivity(watch)
                         tapped = true
+                        if (svc != null) {
+                            var shown = false
+                            var waited = 0
+                            while (!shown && waited < 7000) {
+                                kotlinx.coroutines.delay(500)
+                                waited += 500
+                                shown = svc.activePackage() == "com.google.android.youtube"
+                            }
+                            if (!shown) {
+                                return ActionResult(false, null, "YouTube did not open on the screen. Android may be blocking Jarvis from opening apps in the background: allow 'Display pop-up windows while running in the background' and 'Display over other apps' for Jarvis in phone settings.")
+                            }
+                        }
                     } else {
                         // Fallback: open the search results and tap the video that matches the name.
                         context.startActivity(intent)

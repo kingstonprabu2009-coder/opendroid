@@ -32,7 +32,7 @@ import java.util.concurrent.TimeUnit
 class GeminiLiveClient(
     private val context: Context,
     private val onStatus: (String) -> Unit,
-    private val onPhoneTask: (String) -> Unit,
+    private val onTool: (name: String, args: JSONObject, respond: (String) -> Unit) -> Unit,
     private val onClosed: (String) -> Unit,
     private val onStopRequested: () -> Unit = {}
 ) {
@@ -60,13 +60,15 @@ class GeminiLiveClient(
     private var modelIndex = 0
     private var apiKeyHeld = ""
     private var voiceHeld = "Charon"
+    private var memoryHeld = ""
     private var gotAudioThisSession = false
 
     val isRunning: Boolean get() = running
 
-    fun start(apiKey: String, voiceName: String = "Charon", idleCloseMs: Long = 0L) {
+    fun start(apiKey: String, voiceName: String = "Charon", idleCloseMs: Long = 0L, memory: String = "") {
         if (running) return
         running = true
+        memoryHeld = memory
         idleMs = idleCloseMs
         lastActive = System.currentTimeMillis()
         apiKeyHeld = apiKey
@@ -147,15 +149,35 @@ class GeminiLiveClient(
     }
 
     private fun setupMessage(model: String): JSONObject {
-        val phoneTool = JSONObject()
-            .put("name", "run_phone_task")
-            .put("description", "Do something on the user's phone: open an app, play a YouTube video, send a WhatsApp message, set an alarm, etc.")
-            .put("parameters", JSONObject()
-                .put("type", "OBJECT")
-                .put("properties", JSONObject().put("task", JSONObject()
-                    .put("type", "STRING")
-                    .put("description", "What to do, in the user's own words.")))
-                .put("required", JSONArray().put("task")))
+        fun prop(type: String, desc: String) = JSONObject().put("type", type).put("description", desc)
+        fun tool(name: String, desc: String, props: JSONObject, required: List<String>) = JSONObject()
+            .put("name", name).put("description", desc)
+            .put("parameters", JSONObject().put("type", "OBJECT").put("properties", props)
+                .put("required", JSONArray().also { a -> required.forEach { a.put(it) } }))
+        val phoneTool = tool("run_phone_task",
+            "Do anything else on the user's phone (send a WhatsApp message, set an alarm, etc.). Result is not known immediately.",
+            JSONObject().put("task", prop("STRING", "What to do, in the user's own words.")), listOf("task"))
+        val youtubeTool = tool("play_youtube",
+            "Search YouTube, play the video the user named, and optionally subscribe to the channel, like the video and post a comment. Returns SUCCESS or FAILED.",
+            JSONObject()
+                .put("query", prop("STRING", "Only the song or video name to search and play."))
+                .put("subscribe", prop("BOOLEAN", "true to subscribe to the channel."))
+                .put("like", prop("BOOLEAN", "true to like the video."))
+                .put("comment", prop("STRING", "Comment text to post, if the user asked to comment.")),
+            listOf("query"))
+        val openAppTool = tool("open_app", "Open an installed app by name. Returns SUCCESS or FAILED.",
+            JSONObject().put("app_name", prop("STRING", "App name, e.g. WhatsApp.")), listOf("app_name"))
+        val readScreenTool = tool("read_screen", "Read the text and buttons currently visible on the phone screen. Use it before and after every tap to check what happened.", JSONObject(), emptyList())
+        val tapTool = tool("tap_text", "Tap the button or item on screen whose label contains this text. Returns SUCCESS or FAILED.",
+            JSONObject().put("label", prop("STRING", "Text or description of the control to tap.")), listOf("label"))
+        val typeTool = tool("type_text", "Type text into the text field on screen. Returns SUCCESS or FAILED.",
+            JSONObject().put("text", prop("STRING", "Text to type.")), listOf("text"))
+        val scrollTool = tool("scroll_screen", "Scroll the screen down or up.",
+            JSONObject().put("direction", prop("STRING", "down or up")), listOf("direction"))
+        val navTool = tool("press_key", "Press a phone key: back or home.",
+            JSONObject().put("key", prop("STRING", "back or home")), listOf("key"))
+        val rememberTool = tool("remember", "Save a short lesson or fact to long-term memory so next time you do it right. Use when the user teaches or corrects you, or you find a way that works.",
+            JSONObject().put("note", prop("STRING", "One short sentence.")), listOf("note"))
         val stopTool = JSONObject()
             .put("name", "stop_jarvis")
             .put("description", "Switch Jarvis itself completely off. Call this ONLY when the user clearly asks to turn Jarvis off (stop Jarvis, Jarvis stop, turn off, switch off, nillu Jarvis, nirutthu). Never call it for stop talking, wait, or cancel.")
@@ -163,16 +185,18 @@ class GeminiLiveClient(
             .put("model", "models/$model")
             .put("generationConfig", JSONObject()
                 .put("responseModalities", JSONArray().put("AUDIO"))
+                // No long "thinking" before answering: it is what makes replies late.
+                .also { if (model.contains("2.5")) it.put("thinkingConfig", JSONObject().put("thinkingBudget", 0)) }
                 .put("speechConfig", JSONObject().put("voiceConfig", JSONObject()
                     .put("prebuiltVoiceConfig", JSONObject().put("voiceName", voiceHeld)))))
-            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM))))
-            .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(phoneTool).put(stopTool))))
+            .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM + memoryHeld))))
+            .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(phoneTool).put(youtubeTool).put(openAppTool).put(readScreenTool).put(tapTool).put(typeTool).put(scrollTool).put(navTool).put(rememberTool).put(stopTool))))
         // Reply fast: treat ~0.6 s of silence as the end of the user's turn.
         setup.put("realtimeInputConfig", JSONObject().put("automaticActivityDetection", JSONObject()
             .put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
             .put("endOfSpeechSensitivity", "END_SENSITIVITY_HIGH")
             .put("prefixPaddingMs", 100)
-            .put("silenceDurationMs", 600)))
+            .put("silenceDurationMs", 350)))
         return JSONObject().put("setup", setup)
     }
 
@@ -181,7 +205,7 @@ class GeminiLiveClient(
         if (msg.has("setupComplete")) {
             ready = true
             lastActive = System.currentTimeMillis()
-            onStatus("Listening")
+            onStatus("Listening - Gemini Live (" + MODELS[modelIndex].substringBefore("-preview") + ")")
             startMic()
             return
         }
@@ -208,20 +232,27 @@ class GeminiLiveClient(
         }
         msg.optJSONObject("toolCall")?.optJSONArray("functionCalls")?.let { calls ->
             lastActive = System.currentTimeMillis()
-            val responses = JSONArray()
             for (i in 0 until calls.length()) {
                 val c = calls.getJSONObject(i)
-                if (c.optString("name") == "run_phone_task") {
-                    onPhoneTask(c.optJSONObject("args")?.optString("task").orEmpty())
+                val id = c.optString("id")
+                val name = c.optString("name")
+                if (name == "stop_jarvis") {
+                    sendToolResult(id, name, "Jarvis is switching off now.")
+                    onStopRequested()
+                    continue
                 }
-                if (c.optString("name") == "stop_jarvis") { onStopRequested() }
-                responses.put(JSONObject()
-                    .put("id", c.optString("id"))
-                    .put("name", c.optString("name"))
-                    .put("response", JSONObject().put("result", "started")))
+                // The real outcome goes back to Gemini, so it only says "done" when it was done.
+                onTool(name, c.optJSONObject("args") ?: JSONObject()) { result ->
+                    lastActive = System.currentTimeMillis()
+                    sendToolResult(id, name, result)
+                }
             }
-            ws?.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", responses)).toString())
         }
+    }
+
+    private fun sendToolResult(id: String, name: String, result: String) {
+        val one = JSONObject().put("id", id).put("name", name).put("response", JSONObject().put("result", result))
+        ws?.send(JSONObject().put("toolResponse", JSONObject().put("functionResponses", JSONArray().put(one))).toString())
     }
 
     // ---- audio out: 24 kHz mono PCM16 ----
@@ -281,7 +312,7 @@ class GeminiLiveClient(
     private fun startMic() {
         if (micThread != null) return
         micThread = Thread {
-            val frameBytes = IN_RATE / 25 * 2
+            val frameBytes = IN_RATE / 50 * 2 // 20 ms frames: less delay
             val min = AudioRecord.getMinBufferSize(IN_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT)
             val rec = try {
                 AudioRecord(MediaRecorder.AudioSource.VOICE_COMMUNICATION, IN_RATE,
@@ -322,6 +353,9 @@ class GeminiLiveClient(
         const val SYSTEM = "You are Jarvis, a friendly male voice assistant for a Tamil-speaking user in Chennai. " +
             "Talk in natural spoken Tamil mixed with simple English words, the way people in Chennai speak. " +
             "Keep answers short, one or two sentences, and stop when the user speaks. " +
-            "When the user asks you to do something on the phone, call run_phone_task, then say briefly that you are doing it."
+            "For YouTube use play_youtube, for opening apps use open_app, for other phone jobs use run_phone_task. " +
+            "NEVER say a phone task is done unless the tool result starts with SUCCESS. If it says FAILED, tell the user plainly what failed. " +
+            "To work in any other app (for example CapCut video editing): open_app, then repeat read_screen, tap_text / type_text / scroll_screen, and read_screen again to check each step worked. " +
+            "When the user teaches or corrects you, call remember with one short sentence. "
     }
 }

@@ -329,12 +329,13 @@ fun JarvisHomeScreen(
                     // Glow cycles cyan -> red -> green only while Jarvis is really speaking;
                     // otherwise it rests on cyan blue. It eases back to cyan when speech ends.
                     val colourClock = remember { Animatable(0f) }
-                    LaunchedEffect(serviceOn, speaking) {
-                        if (serviceOn && speaking) {
+                    LaunchedEffect(serviceOn, speaking, active) {
+                        if (serviceOn && (speaking || active)) {
                             colourClock.snapTo(colourClock.value % 3f)
+                            // Fast colour change while Jarvis talks, slow while it listens or thinks.
                             colourClock.animateTo(
                                 colourClock.value + 3f,
-                                infiniteRepeatable(tween(4200, easing = LinearEasing))
+                                infiniteRepeatable(tween(if (speaking) 2400 else 8000, easing = LinearEasing))
                             )
                         } else {
                             val rest = colourClock.value % 3f
@@ -385,13 +386,13 @@ fun JarvisHomeScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier.size(270.dp),
+                            modifier = Modifier.size(380.dp),
                             contentAlignment = Alignment.Center
                         ) {
                             // Light that starts exactly at the orb's outer ring and fades out.
                             // No glow until Jarvis is switched ON.
                             if (serviceOn) Canvas(Modifier.fillMaxSize()) {
-                                val orb = 85.dp.toPx() * (if (active) pulse else 1f)
+                                val orb = 126.dp.toPx() * (if (active) pulse else 1f)
                                 val outer = size.minDimension / 2f
                                 val edge = orb / outer
                                 val strength = (if (active) 0.85f else 0.8f) + breath * 0.15f
@@ -414,7 +415,7 @@ fun JarvisHomeScreen(
                             // so it cannot hide the glow.
                             Box(
                                 modifier = Modifier
-                                    .size(170.dp)
+                                    .size(252.dp)
                                     .graphicsLayer {
                                         val scale = if (active) pulse else 1f
                                         scaleX = scale
@@ -441,7 +442,7 @@ fun JarvisHomeScreen(
                                             )
                                         )
                                     ),
-                                    modifier = Modifier.requiredSize(210.dp)
+                                    modifier = Modifier.requiredSize(304.dp)
                                 )
                             }
                         }

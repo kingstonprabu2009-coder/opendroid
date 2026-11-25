@@ -53,6 +53,9 @@ class OpenDroidService : Service() {
     lateinit var settingsRepository: SettingsRepository
 
     @Inject
+    lateinit var actionDispatcher: com.opendroid.ai.actions.ActionDispatcher
+
+    @Inject
     lateinit var mcpServer: McpServer
 
     private lateinit var wakeWordDetector: WakeWordDetector
@@ -296,6 +299,7 @@ class OpenDroidService : Service() {
             val key = settingsRepository.llmConfig.first().apiKeys["Google Gemini"].orEmpty()
             if (key.isBlank()) {
                 // No Gemini key: use the older Groq pipeline instead.
+                VoiceSubtitles.reply.value = "Old mode (no Gemini key set)"
                 conversationActive = true
                 startListeningForQuery()
                 return@launch
@@ -310,8 +314,11 @@ class OpenDroidService : Service() {
                         VoiceSubtitles.reply.value = st
                         VoiceSubtitles.liveSpeaking.value = st == "Speaking"
                     } },
-                onPhoneTask = { task ->
-                    serviceScope.launch { if (task.isNotBlank()) agentLoop.processQuery(task, this@OpenDroidService) }
+                onTool = { name, args, respond ->
+                    serviceScope.launch {
+                        val result = try { runLiveTool(name, args) } catch (e: Exception) { "FAILED: " + (e.message ?: "error") }
+                        respond(result)
+                    }
                 },
                 onStopRequested = { serviceScope.launch { endLive(); handleBye() } },
                 onClosed = { reason ->
@@ -323,10 +330,76 @@ class OpenDroidService : Service() {
                 }
             ).also {
                 val saver = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("battery_saver", true)
-                it.start(key, idleCloseMs = if (saver) 40_000L else 0L)
+                val notes = getSharedPreferences("jarvis_memory", Context.MODE_PRIVATE).getString("notes", "").orEmpty()
+                val memory = if (notes.isBlank()) "" else "\nThings you have learned from the user, follow them:\n" + notes
+                it.start(key, idleCloseMs = if (saver) 40_000L else 0L, memory = memory)
             }
         }
         return true
+    }
+
+    private fun describeResult(r: com.opendroid.ai.actions.base.ActionResult): String =
+        if (r.success) "SUCCESS: " + (r.data ?: "done") else "FAILED: " + (r.error ?: "unknown error")
+
+    /** Runs a phone job asked for by the live voice and returns its real outcome. */
+    private suspend fun runLiveTool(name: String, args: org.json.JSONObject): String = when (name) {
+        "play_youtube" -> {
+            val p = mutableMapOf("query" to args.optString("query"))
+            if (args.optBoolean("subscribe", false)) p["subscribe"] = "true"
+            if (args.optBoolean("like", false)) p["like"] = "true"
+            val c = args.optString("comment")
+            if (c.isNotBlank()) p["comment"] = c
+            describeResult(actionDispatcher.execute("PLAY_YOUTUBE", p, this))
+        }
+        "open_app" -> describeResult(
+            actionDispatcher.execute("OPEN_APP", mapOf("appName" to args.optString("app_name")), this)
+        )
+        "read_screen" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+            if (svc == null) "FAILED: Accessibility is off" else svc.getScreenText().take(1800).ifBlank { "Screen has no readable text" }
+        }
+        "tap_text" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+            val ok = svc?.tapByText(args.optString("label")) == true
+            delay(800)
+            if (svc == null) "FAILED: Accessibility is off" else if (ok) "SUCCESS: tapped" else "FAILED: no control with that text is visible"
+        }
+        "type_text" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+            val ok = svc?.typeIntoFocused(args.optString("text")) == true
+            if (svc == null) "FAILED: Accessibility is off" else if (ok) "SUCCESS: typed" else "FAILED: no text field found"
+        }
+        "scroll_screen" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+            val ok = svc?.performScroll(args.optString("direction").lowercase() != "up") == true
+            delay(600)
+            if (svc == null) "FAILED: Accessibility is off" else if (ok) "SUCCESS: scrolled" else "FAILED: nothing to scroll"
+        }
+        "press_key" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+            val back = args.optString("key").lowercase() == "back"
+            val ok = svc?.let { if (back) it.goBack() else it.goHome() } == true
+            delay(600)
+            if (svc == null) "FAILED: Accessibility is off" else if (ok) "SUCCESS" else "FAILED"
+        }
+        "remember" -> {
+            val note = args.optString("note").trim().take(200)
+            if (note.isBlank()) "FAILED: empty note" else {
+                val prefs = getSharedPreferences("jarvis_memory", Context.MODE_PRIVATE)
+                val lines = prefs.getString("notes", "").orEmpty().split("\n").filter { it.isNotBlank() }.toMutableList()
+                if (note !in lines) lines.add(note)
+                prefs.edit().putString("notes", lines.takeLast(40).joinToString("\n")).apply()
+                "SUCCESS: remembered"
+            }
+        }
+        "run_phone_task" -> {
+            val t = args.optString("task")
+            if (t.isBlank()) "FAILED: no task given" else {
+                agentLoop.processQuery(t, this)
+                "STARTED: handed to the phone agent, the outcome is not known yet. Do not say it is done."
+            }
+        }
+        else -> "FAILED: unknown tool"
     }
 
     private fun endLive() {
