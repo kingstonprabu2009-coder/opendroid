@@ -25,7 +25,7 @@ class GroqProvider @Inject constructor(
 ) : LLMProvider {
 
     override val name: String = "Groq"
-    override val availableModels: List<String> = listOf("llama-3.3-70b-specdec", "llama3-70b-8192", "gemma2-9b-it", "mixtral-8x7b-32768")
+    override val availableModels: List<String> = listOf("openai/gpt-oss-120b", "openai/gpt-oss-20b")
 
     private val gson = Gson()
     private val mediaType = "application/json; charset=utf-8".toMediaType()
@@ -40,7 +40,10 @@ class GroqProvider @Inject constructor(
 
         val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
 
-        val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "llama-3.3-70b-specdec"
+        // Groq switched these off on the free plan; a saved old choice must keep working.
+        val selectedModel = request.model
+            ?.takeIf { it.isNotBlank() && !it.startsWith("llama") && !it.startsWith("mixtral") && !it.startsWith("gemma") }
+            ?: "openai/gpt-oss-120b"
 
         val requestBodyMap = mutableMapOf<String, Any>(
             "model" to selectedModel,
@@ -48,6 +51,11 @@ class GroqProvider @Inject constructor(
             "temperature" to request.temperature,
             "max_tokens" to request.maxTokens
         )
+        // gpt-oss thinks before answering and that counts against the token limit.
+        if (selectedModel.startsWith("openai/gpt-oss")) {
+            requestBodyMap["reasoning_effort"] = "low"
+            requestBodyMap["max_tokens"] = maxOf(request.maxTokens, 1500)
+        }
         if (request.responseFormat == ResponseFormat.JSON) {
             requestBodyMap["response_format"] = mapOf("type" to "json_object")
         }
