@@ -302,9 +302,12 @@ fun JarvisHomeScreen(
                 )
 
                 else -> {
+                    val liveSpeaking by VoiceSubtitles.liveSpeaking.collectAsState()
+                    // Live voice can speak while AgentState remains Listening; audio state wins.
+                    val speaking = agentState is AgentState.Speaking || liveSpeaking
                     val active = agentState is AgentState.Listening ||
                         agentState is AgentState.Thinking ||
-                        agentState is AgentState.Speaking
+                        agentState is AgentState.Speaking || speaking
                     val transition = rememberInfiniteTransition(label = "jarvisOrb")
                     // Calm, state-driven motion: no rotating orbit or random colour cycling.
                     // The orb breathes while active and gives a very small vibration only while speaking.
@@ -312,7 +315,7 @@ fun JarvisHomeScreen(
                         initialValue = 1f,
                         targetValue = if (active) 1.045f else 1.012f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(if (speakingState(agentState)) 620 else 1250),
+                            animation = tween(if (speaking) 520 else 1250),
                             repeatMode = RepeatMode.Reverse
                         ),
                         label = "orbPulse"
@@ -326,14 +329,12 @@ fun JarvisHomeScreen(
                         ),
                         label = "orbVoiceMotion"
                     )
-                    val liveSpeaking by VoiceSubtitles.liveSpeaking.collectAsState()
-                    val speaking = agentState is AgentState.Speaking || liveSpeaking
-                    val glowColor = when (agentState) {
-                        is AgentState.Listening -> AccentRed
-                        is AgentState.Thinking -> AccentPurple
-                        is AgentState.Speaking -> AccentCyan
-                        is AgentState.ExecutingPlan -> Color(0xFF35D07F)
-                        else -> if (speaking) AccentCyan else Color(0xFF22D3FF)
+                    val glowColor = when {
+                        speaking -> AccentCyan
+                        agentState is AgentState.Listening -> AccentRed
+                        agentState is AgentState.Thinking -> AccentPurple
+                        agentState is AgentState.ExecutingPlan -> Color(0xFF35D07F)
+                        else -> Color(0xFF22D3FF)
                     }
                     val reply by VoiceSubtitles.reply.collectAsState()
                     val history by chatViewModel.conversationHistory.collectAsState()
@@ -345,21 +346,21 @@ fun JarvisHomeScreen(
                     LaunchedEffect(lines, spoken.lastOrNull()?.text) {
                         if (lines > 0) historyState.animateScrollToItem(lines - 1)
                     }
-                    val orbColor = when (agentState) {
-                        is AgentState.Listening -> AccentRed
-                        is AgentState.Thinking -> AccentPurple
-                        is AgentState.Speaking -> AccentCyan
-                        is AgentState.ExecutingPlan -> AccentCyan
+                    val orbColor = when {
+                        speaking -> AccentCyan
+                        agentState is AgentState.Listening -> AccentRed
+                        agentState is AgentState.Thinking -> AccentPurple
+                        agentState is AgentState.ExecutingPlan -> AccentCyan
                         else -> TextPrimary
                     }
                     // 0..1, breathing slowly when idle and fast when active.
                     val breath = (pulse - 1f) / 0.06f
-                    val status = when (agentState) {
-                        is AgentState.Listening -> "LISTENING"
-                        is AgentState.Thinking -> "THINKING"
-                        is AgentState.Speaking -> "SPEAKING"
-                        is AgentState.ExecutingPlan -> "WORKING"
-                        is AgentState.Error -> "ERROR"
+                    val status = when {
+                        speaking -> "SPEAKING"
+                        agentState is AgentState.Listening -> "LISTENING"
+                        agentState is AgentState.Thinking -> "THINKING"
+                        agentState is AgentState.ExecutingPlan -> "WORKING"
+                        agentState is AgentState.Error -> "ERROR"
                         else -> if (serviceOn) "WAKE WORD ACTIVE" else "SERVICE STOPPED"
                     }
 
