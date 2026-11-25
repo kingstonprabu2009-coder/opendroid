@@ -152,7 +152,7 @@ class OpenDroidService : Service() {
         // Initialize engines
         wakeWordDetector = WakeWordDetector(this)
         speechRecognitionEngine = SpeechRecognitionEngine(this)
-        textToSpeechEngine = TextToSpeechEngine(this, settingsRepository)
+        textToSpeechEngine = TextToSpeechEngine(this, settingsRepository, edgeVoiceEnabled = true)
 
         // Bind Agent Loop TTS: speak only when the user spoke by voice
         agentLoop.onSpeakCallback = { text ->

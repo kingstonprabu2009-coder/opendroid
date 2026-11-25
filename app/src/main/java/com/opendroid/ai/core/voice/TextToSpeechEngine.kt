@@ -30,10 +30,12 @@ class TextToSpeechEngine(
     private val settingsRepository: SettingsRepository,
     private val client: OkHttpClient = OkHttpClient(),
     private val elevenLabsBaseUrl: String = "https://api.elevenlabs.io",
-    dispatcher: CoroutineDispatcher = Dispatchers.IO
+    dispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val edgeVoiceEnabled: Boolean = false
 ) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
+    private val edgeClient = EdgeTtsClient(client)
     private var isInitialized = false
     // Completes when the phone's TTS engine has finished starting (it takes a moment).
     private val ready = CompletableDeferred<Unit>()
@@ -44,7 +46,6 @@ class TextToSpeechEngine(
     // anything, including the local fallback, once its fetch or playback unwinds.
     private val generation = AtomicLong()
     @Volatile private var inFlightCall: Call? = null
-    private val edgeTts = EdgeTtsClient(client)
 
     // The player and the cached clip it plays are replaced and released together.
     private val playerLock = Any()
@@ -120,35 +121,10 @@ class TextToSpeechEngine(
     /** Text with Tamil letters is read by the Tamil voice; Tanglish / English by Indian English. */
     private fun hasTamil(text: String): Boolean = text.any { it in '\u0B80'..'\u0BFF' }
 
-    /** Language of [text] from its script. English letters (Tanglish) count as Tamil, as before. */
-    private fun scriptOf(text: String): String = when {
-        text.any { it in '\u0B80'..'\u0BFF' } -> "ta"
-        text.any { it in '\u0900'..'\u097F' } -> "hi"
-        text.any { it in '\u0C00'..'\u0C7F' } -> "te"
-        text.any { it in '\u0C80'..'\u0CFF' } -> "kn"
-        text.any { it in '\u0D00'..'\u0D7F' } -> "ml"
-        else -> "latin"
-    }
-
-    /** Male Edge voice for the language. Tanglish (English letters) uses the Tamil voice. */
-    private fun edgeVoiceFor(text: String): String = when (scriptOf(text)) {
-        "hi" -> "hi-IN-MadhurNeural"
-        "te" -> "te-IN-MohanNeural"
-        "kn" -> "kn-IN-GaganNeural"
-        "ml" -> "ml-IN-MidhunNeural"
-        else -> "ta-IN-ValluvarNeural"
-    }
-
     /** Picks the Tamil or Indian English voice for [text]. */
     private fun prepareVoiceFor(engine: TextToSpeech, text: String) {
-        val locale = when (scriptOf(text)) {
-            "ta" -> Locale.forLanguageTag("ta-IN")
-            "hi" -> Locale.forLanguageTag("hi-IN")
-            "te" -> Locale.forLanguageTag("te-IN")
-            "kn" -> Locale.forLanguageTag("kn-IN")
-            "ml" -> Locale.forLanguageTag("ml-IN")
-            else -> Locale.forLanguageTag("en-IN")
-        }
+        val tag = if (hasTamil(text)) "ta" else "en"
+        val locale = if (tag == "ta") Locale.forLanguageTag("ta-IN") else Locale.forLanguageTag("en-IN")
         try {
             var r = engine.setLanguage(locale)
             if (r == TextToSpeech.LANG_MISSING_DATA || r == TextToSpeech.LANG_NOT_SUPPORTED) {
@@ -194,13 +170,13 @@ class TextToSpeechEngine(
                 }
             }
 
-            // Free male Tamil voice. If it fails for any reason, the phone voice below speaks.
-            try {
-                if (generation.get() != speechGeneration) return@launch
-                val mp3 = edgeTts.synthesize(text, edgeVoiceFor(text))
-                if (mp3 != null && playClipBytes(mp3, utteranceId, speechGeneration)) return@launch
-            } catch (e: Exception) {
-                // Fall through to the phone voice.
+            // Free male neural voice (Valluvar for Tamil). Any failure falls through to the phone voice.
+            if (edgeVoiceEnabled && generation.get() == speechGeneration) {
+                try {
+                    if (playEdgeTts(text, utteranceId, speechGeneration)) return@launch
+                } catch (e: Exception) {
+                    // Fall back to local TTS below.
+                }
             }
 
             // Local fallback — must run on main thread. Not after stop(): a cancelled
@@ -310,13 +286,19 @@ class TextToSpeechEngine(
         }
     }
 
-    /** Plays mp3 [bytes]. Returns false if it could not start, so the caller can fall back. */
-    private fun playClipBytes(bytes: ByteArray, utteranceId: String, speechGeneration: Long): Boolean {
-        if (generation.get() != speechGeneration) return true
+    private fun playEdgeTts(text: String, utteranceId: String, speechGeneration: Long): Boolean {
+        val voice = EdgeTtsClient.voiceFor(text)
+        // Tanglish is rewritten in Tamil letters so the Tamil voice reads it properly.
+        val convert = voice == "en-IN-PrabhatNeural" && !TanglishToTamil.looksEnglish(text)
+        val spoken = if (convert) TanglishToTamil.convert(text) else text
+        val voiceToUse = if (convert) "ta-IN-ValluvarNeural" else voice
         val clip = File.createTempFile(CLIP_PREFIX, CLIP_SUFFIX, context.cacheDir)
-        try {
-            FileOutputStream(clip).use { it.write(bytes) }
+        val ok = try {
+            edgeClient.synthesize(spoken, voiceToUse, clip)
         } catch (e: Exception) {
+            false
+        }
+        if (!ok) {
             clip.delete()
             return false
         }
@@ -372,7 +354,7 @@ class TextToSpeechEngine(
     fun stop() {
         generation.incrementAndGet()
         inFlightCall?.cancel()
-        edgeTts.cancel()
+        edgeClient.cancel()
         scope.coroutineContext.cancelChildren()
         tts?.stop()
         synchronized(playerLock) { releasePlayerLocked() }
@@ -381,7 +363,7 @@ class TextToSpeechEngine(
     fun destroy() {
         generation.incrementAndGet()
         inFlightCall?.cancel()
-        edgeTts.cancel()
+        edgeClient.cancel()
         scope.cancel()
         tts?.shutdown()
         tts = null

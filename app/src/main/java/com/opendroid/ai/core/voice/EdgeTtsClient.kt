@@ -6,7 +6,8 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import okio.ByteString
-import java.io.ByteArrayOutputStream
+import java.io.File
+import java.io.FileOutputStream
 import java.security.MessageDigest
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -18,134 +19,151 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Free male Tamil voice (ta-IN-ValluvarNeural) through Microsoft Edge's read-aloud service.
- * Unofficial: it can stop working any time. The caller must fall back to the phone voice
- * when synthesize() returns null.
+ * Free Microsoft Edge "read aloud" neural voices (unofficial, no key, no credits).
+ * Used for the male Jarvis voice: ta-IN-ValluvarNeural for Tamil, en-IN-PrabhatNeural for English, etc.
+ * Microsoft can change or block this service at any time, so callers must keep a fallback.
  */
-class EdgeTtsClient(private val client: OkHttpClient) {
+class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
 
     @Volatile private var socket: WebSocket? = null
 
+    /** Cancels a synthesis in progress. */
     fun cancel() {
         socket?.cancel()
     }
 
-    /** Blocking. Returns mp3 bytes, or null on any failure. Call from a background thread. */
-    fun synthesize(text: String, voice: String = VOICE): ByteArray? {
-        val audio = ByteArrayOutputStream()
+    /**
+     * Writes an MP3 of [text] spoken by [voice] to [target].
+     * Blocks the calling thread (up to ~20 seconds). Returns false on any failure.
+     */
+    fun synthesize(text: String, voice: String, target: File): Boolean {
         val done = CountDownLatch(1)
-        val ok = AtomicBoolean(false)
-
-        val listener = object : WebSocketListener() {
-            override fun onOpen(webSocket: WebSocket, response: Response) {
-                webSocket.send(configMessage())
-                webSocket.send(ssmlMessage(text, voice))
-            }
-
-            override fun onMessage(webSocket: WebSocket, message: String) {
-                if (message.contains("Path:turn.end")) {
-                    ok.set(true)
-                    done.countDown()
-                    webSocket.close(1000, null)
-                }
-            }
-
-            override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
-                if (bytes.size < 2) return
-                val headerLen = ((bytes[0].toInt() and 0xFF) shl 8) or (bytes[1].toInt() and 0xFF)
-                val start = 2 + headerLen
-                if (start > bytes.size) return
-                val header = bytes.substring(2, start).utf8()
-                if (header.contains("Path:audio")) {
-                    synchronized(audio) { audio.write(bytes.substring(start).toByteArray()) }
-                }
-            }
-
-            override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                done.countDown()
-            }
-
-            override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                done.countDown()
-            }
-        }
-
-        val request = Request.Builder()
-            .url(buildUrl())
-            .addHeader("Pragma", "no-cache")
-            .addHeader("Cache-Control", "no-cache")
-            .addHeader("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
-            .addHeader("User-Agent", USER_AGENT)
-            .addHeader("Accept-Language", "en-US,en;q=0.9")
-            .build()
-
-        val ws = client.newWebSocket(request, listener)
-        socket = ws
+        val finished = AtomicBoolean(false)
+        val out = FileOutputStream(target)
         try {
+            val connectionId = UUID.randomUUID().toString().replace("-", "")
+            val url = "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
+                "?TrustedClientToken=$TOKEN&ConnectionId=$connectionId" +
+                "&Sec-MS-GEC=${secMsGec()}&Sec-MS-GEC-Version=1-$CHROMIUM_VERSION"
+            val request = Request.Builder()
+                .url(url)
+                .header("Pragma", "no-cache")
+                .header("Cache-Control", "no-cache")
+                .header("Origin", "chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold")
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
+                        "Chrome/${CHROMIUM_VERSION.substringBefore('.')}.0.0.0 Safari/537.36 " +
+                        "Edg/${CHROMIUM_VERSION.substringBefore('.')}.0.0.0"
+                )
+                .header("Accept-Language", "en-US,en;q=0.9")
+                .header("Cookie", "muid=${UUID.randomUUID().toString().replace("-", "").uppercase()};")
+                .build()
+
+            val ws = client.newWebSocket(request, object : WebSocketListener() {
+                override fun onOpen(webSocket: WebSocket, response: Response) {
+                    val stamp = timestamp()
+                    webSocket.send(
+                        "X-Timestamp:$stamp\r\nContent-Type:application/json; charset=utf-8\r\n" +
+                            "Path:speech.config\r\n\r\n" +
+                            "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":" +
+                            "{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}," +
+                            "\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}\r\n"
+                    )
+                    val requestId = UUID.randomUUID().toString().replace("-", "")
+                    val ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' " +
+                        "xml:lang='en-US'><voice name='$voice'>" +
+                        "<prosody pitch='+0Hz' rate='+0%' volume='+0%'>${escapeXml(text)}</prosody>" +
+                        "</voice></speak>"
+                    webSocket.send(
+                        "X-RequestId:$requestId\r\nContent-Type:application/ssml+xml\r\n" +
+                            "X-Timestamp:${stamp}Z\r\nPath:ssml\r\n\r\n$ssml"
+                    )
+                }
+
+                override fun onMessage(webSocket: WebSocket, text: String) {
+                    if (text.contains("Path:turn.end")) {
+                        finished.set(true)
+                        done.countDown()
+                    }
+                }
+
+                override fun onMessage(webSocket: WebSocket, bytes: ByteString) {
+                    val data = bytes.toByteArray()
+                    if (data.size < 2) return
+                    val headerLength = ((data[0].toInt() and 0xFF) shl 8) or (data[1].toInt() and 0xFF)
+                    val start = 2 + headerLength
+                    if (start > data.size) return
+                    val header = String(data, 2, headerLength, Charsets.UTF_8)
+                    if (header.contains("Path:audio") && data.size > start) {
+                        out.write(data, start, data.size - start)
+                    }
+                }
+
+                override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    done.countDown()
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    done.countDown()
+                }
+            })
+            socket = ws
             done.await(20, TimeUnit.SECONDS)
+            try { ws.close(1000, null) } catch (_: Exception) {}
         } finally {
-            if (socket === ws) socket = null
-            ws.cancel()
+            socket = null
+            try { out.close() } catch (_: Exception) {}
         }
-        if (!ok.get()) return null
-        val bytes = synchronized(audio) { audio.toByteArray() }
-        return if (bytes.isEmpty()) null else bytes
-    }
-
-    private fun buildUrl(): String =
-        "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1" +
-            "?TrustedClientToken=$TOKEN" +
-            "&Sec-MS-GEC=${secMsGec()}" +
-            "&Sec-MS-GEC-Version=$GEC_VERSION" +
-            "&ConnectionId=${UUID.randomUUID().toString().replace("-", "")}"
-
-    /** Time based token the service checks: SHA-256 of Windows file time (5 min steps) + token. */
-    private fun secMsGec(): String {
-        var seconds = System.currentTimeMillis() / 1000 + 11644473600L
-        seconds -= seconds % 300
-        val ticks = seconds * 10_000_000L
-        val hash = MessageDigest.getInstance("SHA-256")
-            .digest("$ticks$TOKEN".toByteArray(Charsets.US_ASCII))
-        return hash.joinToString("") { "%02X".format(it) }
+        return finished.get() && target.length() > 0L
     }
 
     private fun timestamp(): String {
-        val fmt = SimpleDateFormat("EEE MMM dd yyyy HH:mm:ss 'GMT+0000 (Coordinated Universal Time)'", Locale.US)
-        fmt.timeZone = TimeZone.getTimeZone("UTC")
-        return fmt.format(Date())
+        val format = SimpleDateFormat("EEE MMM dd yyyy HH:mm:ss 'GMT+0000 (Coordinated Universal Time)'", Locale.US)
+        format.timeZone = TimeZone.getTimeZone("UTC")
+        return format.format(Date())
     }
 
-    private fun configMessage(): String =
-        "X-Timestamp:${timestamp()}\r\n" +
-            "Content-Type:application/json; charset=utf-8\r\n" +
-            "Path:speech.config\r\n\r\n" +
-            "{\"context\":{\"synthesis\":{\"audio\":{\"metadataoptions\":" +
-            "{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}," +
-            "\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}"
-
-    private fun ssmlMessage(text: String, voice: String): String {
-        val safe = text
-            .replace("&", "&amp;")
-            .replace("<", "&lt;")
-            .replace(">", "&gt;")
-            .replace("\"", "&quot;")
-            .replace("'", "&apos;")
-        val lang = voice.split("-").take(2).joinToString("-")
-        return "X-RequestId:${UUID.randomUUID().toString().replace("-", "")}\r\n" +
-            "Content-Type:application/ssml+xml\r\n" +
-            "X-Timestamp:${timestamp()}Z\r\n" +
-            "Path:ssml\r\n\r\n" +
-            "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' xml:lang='$lang'>" +
-            "<voice name='$voice'><prosody pitch='+0Hz' rate='+0%' volume='+0%'>$safe</prosody></voice></speak>"
+    /** Anti-abuse token Microsoft now requires: SHA-256 of 5-minute-rounded Windows ticks + client token. */
+    private fun secMsGec(): String {
+        var ticks = System.currentTimeMillis() / 1000L + 11644473600L
+        ticks -= ticks % 300L
+        ticks *= 10_000_000L
+        val digest = MessageDigest.getInstance("SHA-256").digest("$ticks$TOKEN".toByteArray(Charsets.US_ASCII))
+        return digest.joinToString("") { "%02X".format(it) }
     }
 
-    private companion object {
-        const val VOICE = "ta-IN-ValluvarNeural"
-        const val TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
-        const val GEC_VERSION = "1-130.0.2849.68"
-        const val USER_AGENT =
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) " +
-                "Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0"
+    private fun escapeXml(s: String): String = s
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace("\"", "&quot;")
+        .replace("'", "&apos;")
+
+    companion object {
+        private const val TOKEN = "6A5AA1D4EAFF4E9FB37E23D68491D6F4"
+        private const val CHROMIUM_VERSION = "143.0.3650.75"
+
+        /** Male neural voice for the language of [text]. */
+        fun voiceFor(text: String): String {
+            var tamil = false; var hindi = false; var telugu = false; var kannada = false; var malayalam = false
+            for (c in text) {
+                when (c) {
+                    in '\u0B80'..'\u0BFF' -> tamil = true
+                    in '\u0900'..'\u097F' -> hindi = true
+                    in '\u0C00'..'\u0C7F' -> telugu = true
+                    in '\u0C80'..'\u0CFF' -> kannada = true
+                    in '\u0D00'..'\u0D7F' -> malayalam = true
+                }
+            }
+            return when {
+                tamil -> "ta-IN-ValluvarNeural"
+                hindi -> "hi-IN-MadhurNeural"
+                telugu -> "te-IN-MohanNeural"
+                kannada -> "kn-IN-GaganNeural"
+                malayalam -> "ml-IN-MidhunNeural"
+                else -> "en-IN-PrabhatNeural"
+            }
+        }
     }
 }
-// END
