@@ -44,6 +44,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -91,7 +92,7 @@ import com.opendroid.ai.ui.viewmodel.ChatViewModel
 import com.opendroid.ai.ui.viewmodel.MemoryViewModel
 import com.opendroid.ai.ui.viewmodel.SettingsViewModel
 
-private enum class JarvisMode { LIVE_VOICE, CHAT, MEMORY }
+private enum class JarvisMode { LIVE_VOICE, CHAT, TEACH, MEMORY }
 
 @SuppressLint("BatteryLife")
 @Composable
@@ -237,64 +238,34 @@ fun JarvisHomeScreen(
 
             if (!showSettings) {
                 Spacer(Modifier.height(6.dp))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                androidx.compose.material3.TabRow(
+                    selectedTabIndex = mode.ordinal,
+                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
+                    contentColor = AccentCyan
                 ) {
-                    OutlinedButton(
-                        onClick = { mode = JarvisMode.LIVE_VOICE },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = if (mode == JarvisMode.LIVE_VOICE) AccentCyan else TextSecondary
-                        )
-                    ) { Text("Live Voice", maxLines = 1, fontSize = 12.sp) }
-                    var teachOn by remember { mutableStateOf(com.opendroid.ai.core.teaching.TeachingMode.active) }
-                    OutlinedButton(
-                        onClick = {
-                            if (teachOn) com.opendroid.ai.core.teaching.TeachingMode.stop(context)
-                            else com.opendroid.ai.core.teaching.TeachingMode.start(context)
-                            teachOn = com.opendroid.ai.core.teaching.TeachingMode.active
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = if (teachOn) androidx.compose.ui.graphics.Color(0xFFFFB300) else TextSecondary
-                        )
-                    ) { Text(if (teachOn) "Teach ON" else "Teach", maxLines = 1, fontSize = 12.sp) }
-                    if (serviceOn && mode == JarvisMode.LIVE_VOICE) {
-                        OutlinedButton(
+                    listOf(
+                        JarvisMode.LIVE_VOICE to "Live",
+                        JarvisMode.CHAT to "Chat",
+                        JarvisMode.TEACH to "Teach",
+                        JarvisMode.MEMORY to "Memory"
+                    ).forEach { (m, label) ->
+                        androidx.compose.material3.Tab(
+                            selected = mode == m,
                             onClick = {
-                                context.startService(
-                                    Intent(context, OpenDroidService::class.java)
-                                        .setAction(OpenDroidService.ACTION_HANGUP)
-                                )
+                                mode = m
+                                if (m == JarvisMode.CHAT && serviceOn) {
+                                    // Chat is typed only: close the mic if it was listening.
+                                    context.startService(
+                                        Intent(context, OpenDroidService::class.java)
+                                            .setAction(OpenDroidService.ACTION_CANCEL_LISTEN)
+                                    )
+                                }
                             },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.outlinedButtonColors(contentColor = androidx.compose.ui.graphics.Color(0xFFFF5252))
-                        ) { Text("Hang up", maxLines = 1, fontSize = 12.sp) }
+                            text = { Text(label, maxLines = 1, fontSize = 13.sp) },
+                            selectedContentColor = AccentCyan,
+                            unselectedContentColor = TextSecondary
+                        )
                     }
-                    OutlinedButton(
-                        onClick = {
-                            mode = JarvisMode.CHAT
-                            // Chat is typed only: close the mic if it was listening.
-                            if (serviceOn) {
-                                context.startService(
-                                    Intent(context, OpenDroidService::class.java)
-                                        .setAction(OpenDroidService.ACTION_CANCEL_LISTEN)
-                                )
-                            }
-                        },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = if (mode == JarvisMode.CHAT) AccentCyan else TextSecondary
-                        )
-                    ) { Text("Chat", maxLines = 1, fontSize = 12.sp) }
-                    OutlinedButton(
-                        onClick = { mode = JarvisMode.MEMORY },
-                        modifier = Modifier.weight(1f),
-                        colors = ButtonDefaults.outlinedButtonColors(
-                            contentColor = if (mode == JarvisMode.MEMORY) AccentCyan else TextSecondary
-                        )
-                    ) { Text("Memory", maxLines = 1, fontSize = 12.sp) }
                 }
             }
 
@@ -316,6 +287,8 @@ fun JarvisHomeScreen(
                     onNavigateToRoutines = onNavigateToRoutines,
                     modifier = Modifier.weight(1f)
                 )
+
+                mode == JarvisMode.TEACH -> TeachTab(modifier = Modifier.weight(1f))
 
                 mode == JarvisMode.MEMORY -> MemoryScreen(
                     viewModel = memoryViewModel,
@@ -544,6 +517,43 @@ fun JarvisHomeScreen(
                             textAlign = TextAlign.Center
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+
+@Composable
+private fun TeachTab(modifier: Modifier = Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    var on by remember { mutableStateOf(com.opendroid.ai.core.teaching.TeachingMode.active) }
+    var names by remember { mutableStateOf(com.opendroid.ai.core.teaching.TeachingMode.lessonNames(context)) }
+    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(
+            if (on) "Teaching ON: neenga phone la pannunga, Jarvis kathukkum." else "Teaching OFF",
+            color = if (on) androidx.compose.ui.graphics.Color(0xFFFFB300) else TextSecondary,
+            fontSize = 14.sp
+        )
+        Button(onClick = {
+            if (on) com.opendroid.ai.core.teaching.TeachingMode.stop(context)
+            else com.opendroid.ai.core.teaching.TeachingMode.start(context)
+            on = com.opendroid.ai.core.teaching.TeachingMode.active
+            names = com.opendroid.ai.core.teaching.TeachingMode.lessonNames(context)
+        }) { Text(if (on) "Stop and save lesson" else "Start teaching") }
+        Text("Saved lessons", color = TextSecondary, fontSize = 12.sp)
+        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            items(names) { n ->
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                ) {
+                    Text(n, color = androidx.compose.ui.graphics.Color.White, fontSize = 14.sp)
+                    OutlinedButton(onClick = {
+                        com.opendroid.ai.core.teaching.TeachingMode.delete(context, n)
+                        names = com.opendroid.ai.core.teaching.TeachingMode.lessonNames(context)
+                    }) { Text("Delete", fontSize = 12.sp) }
                 }
             }
         }

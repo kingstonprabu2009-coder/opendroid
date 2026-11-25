@@ -50,6 +50,18 @@ object TeachingMode {
         JSONArray(context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString("lessons", "[]"))
     } catch (e: Exception) { JSONArray() }
 
+    fun lessonNames(context: Context): List<String> {
+        val all = lessons(context)
+        return (0 until all.length()).map { all.getJSONObject(it).getString("name") }
+    }
+
+    fun delete(context: Context, name: String) {
+        val all = lessons(context)
+        val keep = JSONArray()
+        for (i in 0 until all.length()) if (all.getJSONObject(i).getString("name") != name) keep.put(all.getJSONObject(i))
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString("lessons", keep.toString()).apply()
+    }
+
     /** Lessons whose name appears in [query], formatted as a guide for the agent. Empty if none. */
     fun guideFor(context: Context, query: String): String {
         val q = query.lowercase()

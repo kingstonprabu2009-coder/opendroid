@@ -111,9 +111,7 @@ class TextToSpeechEngine(
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SPEECH)
                         .build()
                 )
-                // Deeper, calmer voice, closer to a male Jarvis style.
-                engine.setPitch(0.72f)
-                engine.setSpeechRate(0.95f)
+                // Pitch and speed come from the phone's Text-to-speech settings.
             }
         }
     }
@@ -131,6 +129,9 @@ class TextToSpeechEngine(
         if (choice == "phone") return null
         val voices = try { engine.voices?.filter { it.locale.language == lang } } catch (e: Exception) { null }
             ?: return null
+        // A voice the user picked by ear in Settings wins (Google voices carry no gender in their names).
+        val saved = context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("voice_$lang", null)
+        if (saved != null) voices.firstOrNull { it.name == saved }?.let { return it }
         fun isMale(v: android.speech.tts.Voice) = v.name.contains("male", true) && !v.name.contains("female", true)
         fun isFemale(v: android.speech.tts.Voice) = v.name.contains("female", true)
         return if (choice == "male") voices.firstOrNull { isMale(it) && !it.isNetworkConnectionRequired }
@@ -150,12 +151,7 @@ class TextToSpeechEngine(
             }
             val v = pickVoice(engine, locale.language)
             if (v != null) engine.setVoice(v)
-            else if (voiceChoice() == "male") {
-                // No male voice installed: lower pitch so it still sounds male.
-                engine.setPitch(0.6f)
-                mainHandler.post { showProblem("Male voice phone la illa. Settings > Text-to-speech la Google voice download pannunga.") }
-            } else engine.setPitch(1.0f)
-            if (v != null) engine.setPitch(1.0f)
+            // No name match: keep the phone's selected voice (e.g. Tamil Voice II) as it is.
         } catch (e: Exception) {
             // Keep whatever voice is already set.
         }

@@ -160,6 +160,7 @@ class OpenDroidService : Service() {
             if (agentLoop.speakReplies) {
                 VoiceSubtitles.reply.value = text
                 textToSpeechEngine.speak(text)
+                startBargeWatch()
             } else if (agentLoop.agentState.value is AgentState.Speaking) {
                 agentLoop.setAgentState(AgentState.Idle)
             }
@@ -175,6 +176,7 @@ class OpenDroidService : Service() {
         textToSpeechEngine.onCompletionListener = { utteranceId ->
             // Only Speaking resets to Idle - speech that happens to play while a
             // plan sits in PlanProposed must not knock the approval gate over.
+            bargeJob?.cancel()
             if (agentLoop.agentState.value is AgentState.Speaking) {
                 agentLoop.setAgentState(AgentState.Idle)
             }
@@ -256,6 +258,7 @@ class OpenDroidService : Service() {
 
     /** Stops any reply that is being spoken so two voices never overlap. */
     private fun stopCurrentSpeech() {
+        bargeJob?.cancel()
         approvalListenGate.disarm()
         textToSpeechEngine.stop()
         if (agentLoop.agentState.value is AgentState.Speaking) {
@@ -270,9 +273,77 @@ class OpenDroidService : Service() {
     // True while a live conversation is open: after each reply Jarvis listens again by itself,
     // so "Jarvis" only has to be said once. Silence, "bye" or hang up closes it.
     @Volatile private var conversationActive = false
+    private val bargeIn = com.opendroid.ai.core.voice.BargeInDetector()
+    private var bargeJob: kotlinx.coroutines.Job? = null
+    private var pendingPrefix: ByteArray? = null
+
+    /** While Jarvis speaks in a live call, watch for the user talking over it and cut in. */
+    private fun startBargeWatch() {
+        val on = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("barge_in", true)
+        if (!on || !conversationActive) return
+        bargeJob?.cancel()
+        bargeJob = serviceScope.launch {
+            delay(1200) // let Jarvis's voice start so its own sound is not taken for the user
+            val pcm = bargeIn.waitForSpeech()
+            if (pcm != null && conversationActive) {
+                pendingPrefix = pcm
+                startListeningForQuery()
+            }
+        }
+    }
+    private var silentRounds = 0
+
+    private var live: com.opendroid.ai.core.voice.GeminiLiveClient? = null
+
+    /** Real-time streaming call with Gemini Live. Returns false if it cannot start (no key, switched off). */
+    private fun tryStartLive(): Boolean {
+        val enabled = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("live_gemini", true)
+        if (!enabled || live?.isRunning == true) return enabled && live?.isRunning == true
+        serviceScope.launch {
+            val key = settingsRepository.llmConfig.first().apiKeys["Google Gemini"].orEmpty()
+            if (key.isBlank()) {
+                // No Gemini key: use the older Groq pipeline instead.
+                conversationActive = true
+                startListeningForQuery()
+                return@launch
+            }
+            conversationActive = true
+            agentLoop.speakReplies = false // the live voice speaks; the agent must stay silent
+            VoiceSubtitles.clear()
+            agentLoop.setAgentState(AgentState.Listening)
+            live = com.opendroid.ai.core.voice.GeminiLiveClient(
+                context = this@OpenDroidService,
+                onStatus = { st -> serviceScope.launch { VoiceSubtitles.reply.value = st } },
+                onPhoneTask = { task ->
+                    serviceScope.launch { if (task.isNotBlank()) agentLoop.processQuery(task, this@OpenDroidService) }
+                },
+                onClosed = { reason ->
+                    serviceScope.launch {
+                        VoiceSubtitles.reply.value = reason
+                        endLive()
+                        startWakeWordDetection()
+                    }
+                }
+            ).also { it.start(key) }
+        }
+        return true
+    }
+
+    private fun endLive() {
+        live?.stop()
+        live = null
+        conversationActive = false
+        if (agentLoop.agentState.value is AgentState.Listening || agentLoop.agentState.value is AgentState.Speaking) {
+            agentLoop.setAgentState(AgentState.Idle)
+        }
+    }
 
     private fun onWakeWordHeard() {
+        cancelListening()
+        stopCurrentSpeech()
+        if (tryStartLive()) return
         conversationActive = true
+        silentRounds = 0
         cancelListening()
         stopCurrentSpeech()
         agentLoop.speakReplies = true
@@ -300,6 +371,7 @@ class OpenDroidService : Service() {
 
     /** Stops every pending microphone session. */
     private fun cancelListening() {
+        bargeJob?.cancel()
         listenJob?.cancel()
         wakeResumeJob?.cancel()
         wakeWordDetector.stopListening()
@@ -391,7 +463,9 @@ class OpenDroidService : Service() {
                 listenWithPhone(key)
                 return@launch
             }
-            val outcome = groqSpeech.listen(key) {
+            val prefix = pendingPrefix
+            pendingPrefix = null
+            val outcome = groqSpeech.listen(key, prefix) {
                 serviceScope.launch {
                     if (agentLoop.agentState.value is AgentState.Listening) {
                         agentLoop.setAgentState(AgentState.Thinking)
@@ -401,10 +475,16 @@ class OpenDroidService : Service() {
             when (outcome) {
                 is GroqSpeech.Outcome.Heard -> handleHeard(outcome.text)
                 GroqSpeech.Outcome.NoSpeech -> {
-                    conversationActive = false
-                    VoiceSubtitles.reply.value = "Onnum kekkala sir"
-                    agentLoop.setAgentState(AgentState.Idle)
-                    startWakeWordDetection()
+                    // Live call: stay on the line through a few quiet rounds, no wake-word restart.
+                    silentRounds++
+                    if (conversationActive && silentRounds < 4) {
+                        startListeningForQuery()
+                    } else {
+                        conversationActive = false
+                        VoiceSubtitles.reply.value = "Onnum kekkala sir"
+                        agentLoop.setAgentState(AgentState.Idle)
+                        startWakeWordDetection()
+                    }
                 }
                 is GroqSpeech.Outcome.Failed -> {
                     VoiceSubtitles.reply.value = "${outcome.reason}. Marubadi sollunga sir."
@@ -436,6 +516,7 @@ class OpenDroidService : Service() {
     }
 
     private fun handleHeard(heard: String) {
+        silentRounds = 0
         val query = correctTranscript(heard)
         VoiceSubtitles.heard.value = query
         VoiceSubtitles.reply.value = ""
@@ -503,6 +584,7 @@ class OpenDroidService : Service() {
             startListeningForQuery()
         }
         if (intent?.action == ACTION_HANGUP) {
+            endLive()
             conversationActive = false
             cancelListening()
             stopCurrentSpeech()
@@ -535,6 +617,7 @@ class OpenDroidService : Service() {
         } catch (e: Exception) {
         }
         wakeLock = null
+        live?.stop()
         serviceScope.cancel()
         if (!foregroundStarted) return
         mcpServer.stop()
@@ -556,7 +639,13 @@ class OpenDroidService : Service() {
     }
 
     private fun createNotification(): Notification {
+        val hangUp = android.app.PendingIntent.getService(
+            this, 77,
+            Intent(this, OpenDroidService::class.java).setAction(ACTION_HANGUP),
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
         return NotificationCompat.Builder(this, CHANNEL_ID)
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Hang up", hangUp)
             .setContentTitle("Jarvis Active")
             .setContentText("Listening for wake word 'Jarvis'")
             .setSmallIcon(android.R.drawable.ic_btn_speak_now)

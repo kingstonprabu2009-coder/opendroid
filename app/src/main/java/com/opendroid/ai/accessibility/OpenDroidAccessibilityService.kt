@@ -199,6 +199,99 @@ class OpenDroidAccessibilityService : AccessibilityService() {
         return false
     }
 
+    // --- YouTube watch-page helpers (subscribe / like / comment) ---
+
+    private fun findVisibleNode(test: (desc: String, text: String) -> Boolean): AccessibilityNodeInfo? {
+        val root = rootInActiveWindow ?: return null
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            val desc = node.contentDescription?.toString().orEmpty()
+            val txt = node.text?.toString().orEmpty()
+            if ((desc.isNotEmpty() || txt.isNotEmpty()) && node.isVisibleToUser && test(desc, txt)) return node
+            for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it) }
+        }
+        return null
+    }
+
+    private fun tapNode(node: AccessibilityNodeInfo): Boolean {
+        var t: AccessibilityNodeInfo? = node
+        while (t != null && !t.isClickable) t = t.parent
+        if (t != null && t.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
+        val r = android.graphics.Rect()
+        node.getBoundsInScreen(r)
+        return !r.isEmpty && clickCoordinates(r.exactCenterX(), r.exactCenterY())
+    }
+
+    /** "clicked", "already" (was subscribed before) or "notfound". */
+    fun youtubeSubscribe(): String {
+        if (findVisibleNode { d, t -> d.startsWith("Subscribed", true) || t.equals("Subscribed", true) } != null) return "already"
+        val n = findVisibleNode { d, t ->
+            (d.startsWith("Subscribe", true) && !d.startsWith("Subscribed", true)) || t.equals("Subscribe", true)
+        } ?: return "notfound"
+        return if (tapNode(n)) "clicked" else "notfound"
+    }
+
+    /** "clicked", "already" or "notfound". */
+    fun youtubeLike(): String {
+        if (findVisibleNode { d, _ -> d.startsWith("Unlike", true) || d.contains("liked this", true) } != null) return "already"
+        val n = findVisibleNode { d, _ -> d.startsWith("Like this video", true) || d.equals("Like", true) } ?: return "notfound"
+        return if (tapNode(n)) "clicked" else "notfound"
+    }
+
+    /** Opens the comment box on the watch page, types [text] and posts it. */
+    suspend fun youtubeComment(text: String): Boolean {
+        if (text.isBlank()) return false
+        // 1. open the comments panel (scroll once or twice if it is below the fold)
+        var opened = false
+        for (attempt in 0 until 4) {
+            val c = findVisibleNode { d, t -> d.startsWith("Comments", true) || t.equals("Comments", true) }
+            if (c != null && tapNode(c)) { opened = true; break }
+            performScroll(true)
+            kotlinx.coroutines.delay(700)
+        }
+        if (!opened) return false
+        kotlinx.coroutines.delay(1500)
+        // 2. tap "Add a comment..." and wait for the text field
+        val add = findVisibleNode { d, t -> d.startsWith("Add a comment", true) || t.startsWith("Add a comment", true) }
+        if (add != null) tapNode(add)
+        kotlinx.coroutines.delay(1200)
+        // 3. type into the editable field
+        var typed = false
+        for (attempt in 0 until 5) {
+            val root = rootInActiveWindow
+            val field = root?.let { findEditable(it) }
+            if (field != null) {
+                val args = Bundle().apply {
+                    putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, text)
+                }
+                typed = field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, args)
+                if (typed) break
+            }
+            kotlinx.coroutines.delay(600)
+        }
+        if (!typed) return false
+        kotlinx.coroutines.delay(600)
+        // 4. press send
+        val send = findVisibleNode { d, t ->
+            d.equals("Send", true) || d.startsWith("Send comment", true) || d.equals("Post", true) ||
+                t.equals("Send", true) || t.equals("Post", true) || t.equals("Comment", true)
+        } ?: return false
+        return tapNode(send)
+    }
+
+    private fun findEditable(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+        val queue = ArrayDeque<AccessibilityNodeInfo>()
+        queue.add(root)
+        while (queue.isNotEmpty()) {
+            val node = queue.removeFirst()
+            if (node.isEditable) return node
+            for (i in 0 until node.childCount) node.getChild(i)?.let { queue.add(it) }
+        }
+        return null
+    }
+
     // --- Gesture Automation Methods (Coordinate Taps) ---
 
     fun clickCoordinates(x: Float, y: Float): Boolean {

@@ -40,8 +40,8 @@ class GroqSpeech(
     }
 
     /** Records until the user stops talking, then transcribes. Cancel the coroutine to abort. */
-    suspend fun listen(apiKey: String, onRecorded: () -> Unit = {}): Outcome = try {
-        val pcm = withContext(Dispatchers.IO) { record() }
+    suspend fun listen(apiKey: String, prefix: ByteArray? = null, onRecorded: () -> Unit = {}): Outcome = try {
+        val pcm = withContext(Dispatchers.IO) { record(prefix) }
         if (pcm == null) {
             Outcome.NoSpeech
         } else {
@@ -114,7 +114,7 @@ class GroqSpeech(
 
     /** 16 kHz mono PCM. Null when nobody spoke. The permission is checked before the service starts. */
     @SuppressLint("MissingPermission")
-    private suspend fun record(): ByteArray? {
+    private suspend fun record(prefix: ByteArray? = null): ByteArray? {
         val minBuffer = AudioRecord.getMinBufferSize(
             RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT
         )
@@ -132,6 +132,12 @@ class GroqSpeech(
             var loudFrames = 0
             var silentFrames = 0
             var started = false
+            if (prefix != null && prefix.isNotEmpty()) {
+                // Words already spoken while Jarvis was talking (barge-in) are kept.
+                audio.write(prefix)
+                started = true
+                loudFrames = 2
+            }
             for (index in 0 until MAX_FRAMES) {
                 coroutineContext.ensureActive()
                 val read = recorder.read(frame, 0, FRAME)
@@ -181,6 +187,6 @@ class GroqSpeech(
         const val FRAME = 1600
         const val MAX_FRAMES = 300          // 30 s
         const val START_TIMEOUT_FRAMES = 60 // 6 s without speech
-        const val END_SILENCE_FRAMES = 15   // 1.5 s pause ends the sentence
+        const val END_SILENCE_FRAMES = 9    // 0.9 s pause ends the sentence, so Jarvis answers sooner
     }
 }

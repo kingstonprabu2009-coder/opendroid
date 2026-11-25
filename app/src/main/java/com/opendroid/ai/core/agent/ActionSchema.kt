@@ -820,9 +820,14 @@ object ActionSchema {
         ),
         ActionDefinition(
             name = "PLAY_YOUTUBE",
-            description = "Plays a video on YouTube",
-            params = listOf(ParamDefinition("query", ParamType.STRING, true, "Video search query")),
-            examples = listOf("play cat videos on youtube", "youtube funny clips"),
+            description = "Searches YouTube, plays the video that matches the name, and can also subscribe to the channel, like the video and post a comment",
+            params = listOf(
+                ParamDefinition("query", ParamType.STRING, true, "Video search query (only the video name)"),
+                ParamDefinition("subscribe", ParamType.STRING, false, "true to subscribe to the channel after the video opens"),
+                ParamDefinition("like", ParamType.STRING, false, "true to like the video"),
+                ParamDefinition("comment", ParamType.STRING, false, "Comment text to post on the video")
+            ),
+            examples = listOf("play cat videos on youtube", "youtube funny clips", "play X song on youtube, subscribe and comment nice song"),
             category = ActionCategory.MEDIA
         ),
         ActionDefinition(

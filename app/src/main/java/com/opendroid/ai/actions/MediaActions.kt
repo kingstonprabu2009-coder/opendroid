@@ -153,8 +153,43 @@ class MediaActions @Inject constructor(
         private val playbackVerifier: MediaPlaybackVerifier
     ) : Action {
         override val name: String = "PLAY_YOUTUBE"
+
+        private data class Plan(val query: String, val subscribe: Boolean, val like: Boolean, val comment: String)
+
+        private val fillers = setOf("pannu", "panni", "pannunga", "pannuga", "podu", "potu", "podunga", "seiyum", "seyyum",
+            "it", "also", "and", "then", "that", "as", "the", "channel", "video", "a", "please", "ku", "la")
+
+        /** Splits "song name and subscribe and comment nice song" into the search text plus extras. */
+        private fun plan(params: Map<String, String>): Plan {
+            val raw = (params["query"] ?: "").trim()
+            fun flag(k: String) = params[k]?.trim()?.lowercase() in setOf("true", "yes", "1")
+            var subscribe = flag("subscribe")
+            var like = flag("like")
+            var comment = params["comment"]?.trim().orEmpty()
+            var query = raw
+            val cut = Regex("(?:\\s+(?:and|then|also)\\s+|,\\s*|\\s+)(subscribe|comment)\\b|\\s+(?:and|then|also)\\s+like\\b", RegexOption.IGNORE_CASE)
+                .find(raw)
+            if (cut != null) {
+                query = raw.substring(0, cut.range.first).trim()
+                val tail = raw.substring(cut.range.first)
+                if (Regex("\\bsubscribe\\b", RegexOption.IGNORE_CASE).containsMatchIn(tail)) subscribe = true
+                if (Regex("\\blike\\b", RegexOption.IGNORE_CASE).containsMatchIn(tail)) like = true
+                val cm = Regex("\\bcomment\\b[:\\s]*(.*)$", RegexOption.IGNORE_CASE).find(tail)
+                if (cm != null && comment.isBlank()) {
+                    val quoted = Regex("[\"\u201c']([^\"\u201d']+)[\"\u201d']").find(cm.groupValues[1])?.groupValues?.get(1)
+                    val rest = quoted ?: cm.groupValues[1]
+                        .replace(Regex("\\b(and|then)\\s+(subscribe|like)\\b.*$", RegexOption.IGNORE_CASE), "")
+                        .split(Regex("\\s+")).filter { it.isNotBlank() && it.lowercase() !in fillers }
+                        .joinToString(" ")
+                    comment = rest.ifBlank { "Super video!" }
+                }
+            }
+            return Plan(query, subscribe, like, comment)
+        }
+
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
-            val query = params["query"] ?: ""
+            val plan = plan(params)
+            val query = plan.query
             return try {
                 val encQuery = URLEncoder.encode(query, "UTF-8")
                 val uri = "https://www.youtube.com/results?search_query=$encQuery".toUri()
@@ -164,10 +199,10 @@ class MediaActions @Inject constructor(
                 }
                 if (intent.resolveActivity(context.packageManager) != null) {
                     context.startActivity(intent)
-                    // Search results only open; tap the first video so it really plays.
+                    // Search results only open; tap the video that matches the name so it really plays.
                     val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+                    var tapped = false
                     if (svc != null) {
-                        var tapped = false
                         var tries = 0
                         while (!tapped && tries < 12) {
                             kotlinx.coroutines.delay(1000)
@@ -175,8 +210,37 @@ class MediaActions @Inject constructor(
                             tries++
                         }
                     }
+                    val notes = mutableListOf<String>()
+                    val wantsExtras = plan.subscribe || plan.like || plan.comment.isNotBlank()
+                    if (wantsExtras) {
+                        if (svc == null) {
+                            notes.add("Accessibility is off, so I could not subscribe/like/comment")
+                        } else if (!tapped) {
+                            notes.add("I could not open the video, so no subscribe/like/comment")
+                        } else {
+                            kotlinx.coroutines.delay(3500) // let the watch page load
+                            if (plan.subscribe) {
+                                var r = "notfound"
+                                var n = 0
+                                while (r == "notfound" && n < 6) { r = svc.youtubeSubscribe(); if (r == "notfound") kotlinx.coroutines.delay(1000); n++ }
+                                notes.add(when (r) { "clicked" -> "subscribed"; "already" -> "already subscribed"; else -> "subscribe button not found" })
+                            }
+                            if (plan.like) {
+                                var r = "notfound"
+                                var n = 0
+                                while (r == "notfound" && n < 4) { r = svc.youtubeLike(); if (r == "notfound") kotlinx.coroutines.delay(1000); n++ }
+                                notes.add(when (r) { "clicked" -> "liked"; "already" -> "already liked"; else -> "like button not found" })
+                            }
+                            if (plan.comment.isNotBlank()) {
+                                notes.add(if (svc.youtubeComment(plan.comment)) "commented" else "comment could not be posted")
+                            }
+                        }
+                    }
+                    val extra = if (notes.isEmpty()) "" else " (" + notes.joinToString(", ") + ")"
                     if (playbackVerifier.awaitVerifiedPlayback(context, "youtube", query)) {
-                        ActionResult(true, if (query.isNotEmpty()) "Playing '$query' on YouTube!" else "YouTube is playing!", null)
+                        ActionResult(true, (if (query.isNotEmpty()) "Playing '$query' on YouTube!" else "YouTube is playing!") + extra, null)
+                    } else if (notes.isNotEmpty()) {
+                        ActionResult(true, "YouTube opened" + extra, null)
                     } else {
                         ActionResult(false, null, "YouTube opened, but playback could not be verified.")
                     }

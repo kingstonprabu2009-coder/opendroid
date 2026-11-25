@@ -1779,6 +1779,30 @@ fun SettingsScreen(
                                 val voiceCtx = androidx.compose.ui.platform.LocalContext.current
                                 val voicePrefs = remember { voiceCtx.getSharedPreferences("jarvis_voice", android.content.Context.MODE_PRIVATE) }
                                 var voiceGender by remember { mutableStateOf(voicePrefs.getString("gender", "male") ?: "male") }
+                                var liveOn by remember { mutableStateOf(voicePrefs.getBoolean("live_gemini", true)) }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Text("Gemini Live streaming (needs Gemini key)", fontSize = 13.sp, color = TextPrimary)
+                                    Switch(checked = liveOn, onCheckedChange = {
+                                        liveOn = it
+                                        voicePrefs.edit().putBoolean("live_gemini", it).apply()
+                                    })
+                                }
+                                var bargeOn by remember { mutableStateOf(voicePrefs.getBoolean("barge_in", true)) }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
+                                ) {
+                                    Text("Interrupt Jarvis by talking", fontSize = 13.sp, color = TextPrimary)
+                                    Switch(checked = bargeOn, onCheckedChange = {
+                                        bargeOn = it
+                                        voicePrefs.edit().putBoolean("barge_in", it).apply()
+                                    })
+                                }
                                 Text("Jarvis voice", fontSize = 12.sp, color = TextSecondary)
                                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                     listOf("male" to "Male", "female" to "Female", "phone" to "Phone").forEach { (key, label) ->
@@ -1805,11 +1829,32 @@ fun SettingsScreen(
                                                 else -> null
                                             }
                                             if (pick != null) e.setVoice(pick)
-                                            else if (voiceGender == "male") e.setPitch(0.6f)
-                                            e.speak("Vanakkam sir, naan Jarvis. Intha voice ok va?", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "t")
+                                                                                        e.speak("Vanakkam sir, naan Jarvis. Intha voice ok va?", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "t")
                                         }
                                     }
                                 }) { Text("Test voice") }
+                                listOf("ta" to "Tamil", "en" to "English").forEach { (lang, label) ->
+                                    OutlinedButton(onClick = {
+                                        var t: android.speech.tts.TextToSpeech? = null
+                                        t = android.speech.tts.TextToSpeech(voiceCtx) { st ->
+                                            val e = t
+                                            if (st == android.speech.tts.TextToSpeech.SUCCESS && e != null) {
+                                                val vs = try {
+                                                    e.voices?.filter { it.locale.language == lang }?.sortedBy { it.name }
+                                                } catch (x: Exception) { null }
+                                                if (!vs.isNullOrEmpty()) {
+                                                    val idx = (voicePrefs.getInt("idx_$lang", -1) + 1) % vs.size
+                                                    val v = vs[idx]
+                                                    voicePrefs.edit().putInt("idx_$lang", idx).putString("voice_$lang", v.name).apply()
+                                                    e.setVoice(v)
+                                                    val msg = if (lang == "ta") "வணக்கம் சார், நான் ஜார்விஸ்" else "Hello sir, I am Jarvis"
+                                                    android.widget.Toast.makeText(voiceCtx, "$label voice ${idx + 1}/${vs.size}", android.widget.Toast.LENGTH_SHORT).show()
+                                                    e.speak(msg, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "p")
+                                                }
+                                            }
+                                        }
+                                    }) { Text("Next $label voice") }
+                                }
                                 SecureApiKeyField(
                                     value = config.elevenLabsApiKey,
                                     onValueChange = { viewModel.updateElevenLabsApiKey(it) },
