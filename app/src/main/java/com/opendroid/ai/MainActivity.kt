@@ -1,7 +1,5 @@
 package com.opendroid.ai
 
-import android.Manifest
-import android.content.pm.PackageManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -10,8 +8,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
-import androidx.core.content.ContextCompat
-import com.opendroid.ai.core.service.OpenDroidService
 import com.opendroid.ai.data.repository.SettingsRepository
 import com.opendroid.ai.ui.OpenDroidNavigation
 import com.opendroid.ai.ui.theme.AppTheme
@@ -29,10 +25,6 @@ class MainActivity : ComponentActivity() {
         enableOpenDroidEdgeToEdge(isDarkTheme = true)
         super.onCreate(savedInstanceState)
 
-        // Start foreground assistant service only if RECORD_AUDIO permission is granted
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) {
-            OpenDroidService.start(this)
-        }
 
         setContent {
             val config by settingsRepository.llmConfig.collectAsState(
