@@ -3,8 +3,12 @@ package com.opendroid.ai.ui.screens
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
+import android.os.PowerManager
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -35,6 +39,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -43,9 +48,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontFamily
@@ -65,9 +71,10 @@ import com.opendroid.ai.ui.theme.AppTheme
 import com.opendroid.ai.ui.theme.TextPrimary
 import com.opendroid.ai.ui.theme.TextSecondary
 import com.opendroid.ai.ui.viewmodel.ChatViewModel
+import com.opendroid.ai.ui.viewmodel.MemoryViewModel
 import com.opendroid.ai.ui.viewmodel.SettingsViewModel
 
-private enum class JarvisMode { LIVE_VOICE, MESSAGE }
+private enum class JarvisMode { LIVE_VOICE, MESSAGE, MEMORY }
 
 @Composable
 fun JarvisHomeScreen(
@@ -86,16 +93,39 @@ fun JarvisHomeScreen(
 ) {
     val context = LocalContext.current
     val chatViewModel: ChatViewModel = hiltViewModel()
+    val memoryViewModel: MemoryViewModel = hiltViewModel()
     val agentState by chatViewModel.agentState.collectAsState()
     var mode by remember { mutableStateOf(JarvisMode.LIVE_VOICE) }
     var showSettings by remember { mutableStateOf(false) }
     val serviceOn by OpenDroidService.isRunning.collectAsState()
+
+    // Jarvis stays switched on after you leave the app; reopening brings it back.
+    LaunchedEffect(Unit) {
+        OpenDroidService.resumeIfWanted(context)
+    }
+
+    // Without this, Android may put the app to sleep and the wake word stops hearing
+    // "Jarvis" once the app is closed or the screen is off.
+    fun askBatteryExemption() {
+        try {
+            val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                    data = Uri.parse("package:" + context.packageName)
+                }
+                context.startActivity(intent)
+            }
+        } catch (e: Exception) {
+            // Some phones do not offer this screen; wake word still works while the app is open.
+        }
+    }
 
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
             OpenDroidService.start(context)
+            askBatteryExemption()
         }
     }
 
@@ -107,6 +137,7 @@ fun JarvisHomeScreen(
 
         if (granted) {
             OpenDroidService.start(context)
+            askBatteryExemption()
         } else {
             microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
@@ -150,24 +181,39 @@ fun JarvisHomeScreen(
                 }
 
                 if (!showSettings) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        OutlinedButton(
-                            onClick = { mode = JarvisMode.LIVE_VOICE },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (mode == JarvisMode.LIVE_VOICE) AccentCyan else TextSecondary
-                            )
-                        ) { Text("Live Voice") }
-                        Spacer(Modifier.size(6.dp))
-                        OutlinedButton(
-                            onClick = { mode = JarvisMode.MESSAGE },
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                contentColor = if (mode == JarvisMode.MESSAGE) AccentCyan else TextSecondary
-                            )
-                        ) { Text("Message") }
-                    }
                     IconButton(onClick = { showSettings = true }) {
                         Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextSecondary)
                     }
+                }
+            }
+
+            if (!showSettings) {
+                Spacer(Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { mode = JarvisMode.LIVE_VOICE },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (mode == JarvisMode.LIVE_VOICE) AccentCyan else TextSecondary
+                        )
+                    ) { Text("Live Voice", maxLines = 1, fontSize = 12.sp) }
+                    OutlinedButton(
+                        onClick = { mode = JarvisMode.MESSAGE },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (mode == JarvisMode.MESSAGE) AccentCyan else TextSecondary
+                        )
+                    ) { Text("Message", maxLines = 1, fontSize = 12.sp) }
+                    OutlinedButton(
+                        onClick = { mode = JarvisMode.MEMORY },
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = if (mode == JarvisMode.MEMORY) AccentCyan else TextSecondary
+                        )
+                    ) { Text("Memory", maxLines = 1, fontSize = 12.sp) }
                 }
             }
 
@@ -190,6 +236,11 @@ fun JarvisHomeScreen(
                     modifier = Modifier.weight(1f)
                 )
 
+                mode == JarvisMode.MEMORY -> MemoryScreen(
+                    viewModel = memoryViewModel,
+                    modifier = Modifier.weight(1f)
+                )
+
                 mode == JarvisMode.MESSAGE -> ChatScreen(
                     viewModel = chatViewModel,
                     modifier = Modifier.weight(1f)
@@ -202,12 +253,37 @@ fun JarvisHomeScreen(
                     val transition = rememberInfiniteTransition(label = "jarvisOrb")
                     val pulse by transition.animateFloat(
                         initialValue = 1f,
-                        targetValue = 1.07f,
+                        targetValue = 1.06f,
                         animationSpec = infiniteRepeatable(
-                            animation = tween(850),
+                            animation = tween(700),
                             repeatMode = RepeatMode.Reverse
                         ),
                         label = "orbPulse"
+                    )
+                    val spin by transition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(3500, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "orbSpin"
+                    )
+                    val shake by transition.animateFloat(
+                        initialValue = -1f,
+                        targetValue = 1f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(80, easing = LinearEasing),
+                            repeatMode = RepeatMode.Reverse
+                        ),
+                        label = "orbShake"
+                    )
+                    val speaking = agentState is AgentState.Speaking
+                    val rainbow = Brush.sweepGradient(
+                        listOf(
+                            Color(0xFF00E5FF), Color(0xFF7C4DFF), Color(0xFFFF4081),
+                            Color(0xFFFFAB00), Color(0xFF00E676), Color(0xFF00E5FF)
+                        )
                     )
                     val orbColor = when (agentState) {
                         is AgentState.Listening -> AccentRed
@@ -233,22 +309,34 @@ fun JarvisHomeScreen(
                         verticalArrangement = Arrangement.Center
                     ) {
                         Box(
-                            modifier = Modifier
-                                .size(260.dp)
-                                .clip(CircleShape)
-                                .background(orbColor.copy(alpha = 0.08f)),
+                            modifier = Modifier.size(270.dp),
                             contentAlignment = Alignment.Center
                         ) {
+                            // Colourful rotating light ring around the logo.
+                            Box(
+                                modifier = Modifier
+                                    .size(270.dp)
+                                    .graphicsLayer {
+                                        rotationZ = if (active) spin else spin / 4f
+                                        alpha = if (active) 1f else 0.35f
+                                    }
+                                    .clip(CircleShape)
+                                    .background(rainbow)
+                            )
                             Image(
                                 painter = painterResource(R.drawable.jarvis_icon_fg),
-                                contentDescription = "Jarvis orb",
-                                colorFilter = ColorFilter.tint(orbColor),
+                                contentDescription = "Jarvis logo",
+                                contentScale = ContentScale.Crop,
                                 modifier = Modifier
-                                    .size(220.dp)
+                                    .size(250.dp)
+                                    .clip(CircleShape)
                                     .graphicsLayer {
                                         val scale = if (active) pulse else 1f
                                         scaleX = scale
                                         scaleY = scale
+                                        // Shakes while Jarvis is speaking.
+                                        translationX = if (speaking) shake * 9f else 0f
+                                        rotationZ = if (speaking) shake * 2f else 0f
                                     }
                             )
                         }

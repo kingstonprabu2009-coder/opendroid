@@ -1558,7 +1558,7 @@ fun SettingsScreen(
                              )
                              Spacer(modifier = Modifier.height(6.dp))
                              Text(
-                                 text = "OpenDroid models occupy ${formatBytes(usedByApp)} of on-device storage.",
+                                 text = "Jarvis models occupy ${formatBytes(usedByApp)} of on-device storage.",
                                  fontSize = 10.sp,
                                  color = TextSecondary
                              )
@@ -1729,7 +1729,7 @@ fun SettingsScreen(
                                     )
                                     if (providerName == "Opencode-Go") {
                                         Text(
-                                            text = "OpenDroid adds the required User-Agent and x-opencode-session headers automatically. Only an API key is needed.",
+                                            text = "Jarvis adds the required User-Agent and x-opencode-session headers automatically. Only an API key is needed.",
                                             fontSize = 10.sp,
                                             color = AccentCyan
                                         )
@@ -1795,7 +1795,7 @@ fun SettingsScreen(
                                     modifier = Modifier.fillMaxWidth()
                                 )
                                 Text(
-                                    text = "If ElevenLabs key is not set, OpenDroid automatically falls back to native offline Android Text-to-Speech.",
+                                    text = "If ElevenLabs key is not set, Jarvis automatically falls back to native offline Android Text-to-Speech.",
                                     fontSize = 10.sp,
                                     color = TextSecondary
                                 )
@@ -2262,7 +2262,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "How OpenDroid handles your data and privacy.",
+                                text = "How Jarvis handles your data and privacy.",
                                 fontSize = 12.sp,
                                 color = TextSecondary
                             )
@@ -2308,7 +2308,7 @@ fun SettingsScreen(
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Usage terms and conditions for OpenDroid.",
+                                text = "Usage terms and conditions for Jarvis.",
                                 fontSize = 12.sp,
                                 color = TextSecondary
                             )
@@ -2478,7 +2478,7 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(10.dp))
                         Text(
-                            text = "To allow OpenDroid to operate other applications autonomously (e.g. WhatsApp, Calendar), verify that the accessibility service 'OpenDroid' is active in Settings -> Accessibility -> Installed Services.",
+                            text = "To allow Jarvis to operate other applications autonomously (e.g. WhatsApp, Calendar), verify that the accessibility service 'Jarvis' is active in Settings -> Accessibility -> Installed Services.",
                             fontSize = 12.sp,
                             color = TextSecondary
                         )

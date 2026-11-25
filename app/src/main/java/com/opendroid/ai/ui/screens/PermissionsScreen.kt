@@ -434,7 +434,7 @@ private fun PermissionsPanelContent(
                 shape = RoundedCornerShape(8.dp),
             ) {
                 Text(
-                    text = "Proceed to OpenDroid Agent",
+                    text = "Proceed to Jarvis Agent",
                     fontWeight = FontWeight.Bold,
                     fontSize = 16.sp,
                 )

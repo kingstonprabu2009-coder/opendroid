@@ -160,7 +160,7 @@ fun RoutinesScreen(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "As you use apps like Gmail, Calendar, and Slack, OpenDroid detects repeated patterns and suggests automations here.",
+                                text = "As you use apps like Gmail, Calendar, and Slack, Jarvis detects repeated patterns and suggests automations here.",
                                 color = AppTheme.colors.textSecondary,
                                 fontSize = 12.sp,
                                 lineHeight = 18.sp
