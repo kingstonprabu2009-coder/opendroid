@@ -12,22 +12,17 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
+      - uses: android-actions/setup-android@v3
 
       - name: Build APK
-        working-directory: opendroid-jarvis-llama-gguf-integration
         run: |
           chmod +x gradlew
           ./gradlew assembleDebug
@@ -36,4 +31,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: JARVIS-debug-APK
-          path: opendroid-jarvis-llama-gguf-integration/app/build/outputs/apk/debug/*.apk
+          path: app/build/outputs/apk/debug/*.apk
