@@ -1,5 +1,5 @@
 # JARVIS Cloud API — foundation
-This backend scaffold is fail-closed. GET /health is active. Better Auth routes under /api/auth/* are enabled only when BETTER_AUTH_SECRET and BETTER_AUTH_URL are configured. All /v1/* AI routes remain HTTP 503 until team authorization, quotas, and the JARVIS model gateway are implemented.
+This backend scaffold is fail-closed. GET /health is active. Better Auth routes under /api/auth/* are enabled only when BETTER_AUTH_SECRET and BETTER_AUTH_URL are configured. Authenticated chat and basic team routes are implemented, but deployment, verified signup, quotas, invitations, and production integration checks remain pending.
 
 - Initial free-tier development target: Cloudflare Workers + D1.
 - Android is a client; credentials and model inference stay server-side.
@@ -16,7 +16,7 @@ This backend scaffold is fail-closed. GET /health is active. Better Auth routes 
 4. Put returned database ID in wrangler.toml.
 5. Apply schema: npx wrangler d1 migrations apply jarvis-db --local.
 6. Start: npm run dev; check http://localhost:8787/health.
-7. Set local secrets in an untracked `.dev.vars` file: `BETTER_AUTH_SECRET` (at least 32 random characters) and `BETTER_AUTH_URL=http://localhost:8787`. Never commit `.dev.vars`.
+7. Set local secrets in an untracked `.dev.vars` file: `BETTER_AUTH_SECRET` (at least 32 random characters), `BETTER_AUTH_URL=http://localhost:8787`, and `JARVIS_OWNER_EMAIL` (the one exact owner account email). Never commit `.dev.vars`.
 8. Run npm test and npm run typecheck.
 
 ## Cost and deployment guardrails
@@ -32,7 +32,10 @@ Configure secrets only through the provider secret manager.
 - Password minimum is 12 characters; sessions expire after 7 days and refresh daily.
 - CORS is exact-origin allowlisted and credentialed; D1-backed rate limiting uses `CF-Connecting-IP` for client identity.
 - Android now stores Better Auth session cookies using the app Keystore-backed credential store. Public signup remains unavailable until a real email delivery provider and mandatory email verification are configured; authenticated D1 end-to-end tests remain pending.
-- Team list/create routes are implemented with user-scoped membership queries; invitations and team role administration are still pending.
+- Team list/create routes are implemented with user-scoped membership queries. A team creator is an ordinary member, not a platform Owner or Admin. Team memberships now have only the `member` role; previous team-level owner/admin labels are normalized by migration 0004.
+- There is exactly one platform Owner: the account whose verified sign-in email matches the server secret `JARVIS_OWNER_EMAIL`. The secret is configured out-of-band and is never accepted from an API request. If it is unset, no account receives Owner privileges.
+- The Owner can list trusted platform Admins with `GET /v1/platform/admins`, and grant/revoke them with `POST /v1/platform/admins` using `{ "email": "...", "action": "grant" | "revoke" }`. Only existing email-verified accounts can be granted Admin. Only the configured Owner can call these management routes; every change is audited. Admin cannot grant/revoke Admin or create another Owner.
+- `GET /v1/platform/access` returns the signed-in user's `owner`, `admin`, or `user` role. Admin and User have no Owner powers.
 
 ## Android client configuration
 - Set the non-secret deployment URL at build time with `-PJARVIS_CLOUD_BASE_URL=https://your-worker.example`.

@@ -88,6 +88,10 @@ fun SettingsScreen(
     val jarvisEmail by viewModel.jarvisEmail.collectAsState()
     val jarvisPassword by viewModel.jarvisPassword.collectAsState()
     val jarvisAccountStatus by viewModel.jarvisAccountStatus.collectAsState()
+    val platformRole by viewModel.platformRole.collectAsState()
+    val platformAdmins by viewModel.platformAdmins.collectAsState()
+    val adminEmail by viewModel.adminEmail.collectAsState()
+    val adminManagementStatus by viewModel.adminManagementStatus.collectAsState()
     val connectionResults by viewModel.connectionResults.collectAsState()
     val dbModels by viewModel.allModels.collectAsState()
     val storageInfo by viewModel.storageInfo.collectAsState()
@@ -333,6 +337,87 @@ fun SettingsScreen(
                             }
                         }
                     }
+                }
+            }
+
+            if (platformRole == "owner") {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().border(1.dp, AccentCyan, RoundedCornerShape(12.dp)),
+                        colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Text(
+                                text = "PLATFORM OWNER CONTROLS",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = AccentCyan
+                            )
+                            Text(
+                                text = "You are the only Owner. Grant or revoke Admin access for trusted, already registered and email-verified users. Admins cannot appoint other Admins or change the Owner.",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                            OutlinedTextField(
+                                value = adminEmail,
+                                onValueChange = viewModel::updateAdminEmail,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Trusted person's registered email") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                            )
+                            Button(
+                                onClick = { viewModel.changePlatformAdmin(adminEmail, "grant") },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Grant Admin access")
+                            }
+                            if (adminManagementStatus.isNotBlank()) {
+                                Text(text = adminManagementStatus, fontSize = 12.sp, color = TextSecondary)
+                            }
+                            Text(
+                                text = "CURRENT TRUSTED ADMINS",
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = AccentCyan
+                            )
+                            if (platformAdmins.isEmpty()) {
+                                Text("No Admins appointed yet.", fontSize = 12.sp, color = TextSecondary)
+                            } else {
+                                platformAdmins.forEach { admin ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(admin.name, fontSize = 13.sp, color = TextPrimary)
+                                            Text(admin.email, fontSize = 11.sp, color = TextSecondary)
+                                        }
+                                        TextButton(onClick = {
+                                            viewModel.changePlatformAdmin(admin.email, "revoke")
+                                        }) {
+                                            Text("Revoke", color = Color(0xFFFF8A80))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if (platformRole == "admin" || platformRole == "user") {
+                item {
+                    Text(
+                        text = "JARVIS platform role: ${platformRole.uppercase(Locale.ROOT)}",
+                        fontSize = 11.sp,
+                        color = TextSecondary,
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 

@@ -54,6 +54,12 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
+import com.google.gson.JsonParser
+import com.google.gson.Gson
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.RequestBody.Companion.toRequestBody
+
+data class JarvisPlatformAdmin(val name: String, val email: String)
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -81,6 +87,14 @@ class SettingsViewModel @Inject constructor(
     )
     val jarvisAccountStatus: StateFlow<String> = _jarvisAccountStatus.asStateFlow()
     val jarvisCloudConfigured: Boolean = BuildConfig.JARVIS_CLOUD_BASE_URL.startsWith("https://")
+    private val _platformRole = MutableStateFlow("unknown")
+    val platformRole: StateFlow<String> = _platformRole.asStateFlow()
+    private val _platformAdmins = MutableStateFlow<List<JarvisPlatformAdmin>>(emptyList())
+    val platformAdmins: StateFlow<List<JarvisPlatformAdmin>> = _platformAdmins.asStateFlow()
+    private val _adminEmail = MutableStateFlow("")
+    val adminEmail: StateFlow<String> = _adminEmail.asStateFlow()
+    private val _adminManagementStatus = MutableStateFlow("")
+    val adminManagementStatus: StateFlow<String> = _adminManagementStatus.asStateFlow()
 
     private val _huggingFaceToken = MutableStateFlow("")
     val huggingFaceToken: StateFlow<String> = _huggingFaceToken
@@ -147,9 +161,11 @@ class SettingsViewModel @Inject constructor(
     init {
         if (jarvisCloudConfigured) {
             viewModelScope.launch(Dispatchers.IO) {
-                _jarvisAccountStatus.value = runCatching {
-                    if (jarvisCloudSession.verifySession(BuildConfig.JARVIS_CLOUD_BASE_URL)) "Signed in" else "Not signed in"
-                }.getOrElse { "Unable to check session" }
+                val signedIn = runCatching {
+                    jarvisCloudSession.verifySession(BuildConfig.JARVIS_CLOUD_BASE_URL)
+                }.getOrDefault(false)
+                _jarvisAccountStatus.value = if (signedIn) "Signed in" else "Not signed in"
+                if (signedIn) refreshPlatformAccess()
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -231,6 +247,7 @@ class SettingsViewModel @Inject constructor(
             }.onSuccess {
                 _jarvisPassword.value = ""
                 _jarvisAccountStatus.value = "Signed in"
+                refreshPlatformAccess()
             }.onFailure {
                 _jarvisAccountStatus.value = it.message?.take(180) ?: "Sign-in failed"
             }
@@ -244,8 +261,78 @@ class SettingsViewModel @Inject constructor(
             }.onSuccess {
                 _jarvisPassword.value = ""
                 _jarvisAccountStatus.value = "Signed out"
+                _platformRole.value = "unknown"
+                _platformAdmins.value = emptyList()
+                _adminManagementStatus.value = ""
             }.onFailure {
                 _jarvisAccountStatus.value = "Sign-out failed: ${it.message?.take(120) ?: "secure storage unavailable"}"
+            }
+        }
+    }
+
+    fun updateAdminEmail(value: String) { _adminEmail.value = value }
+
+    fun refreshPlatformAccess() {
+        if (!jarvisCloudConfigured) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = BuildConfig.JARVIS_CLOUD_BASE_URL.trimEnd('/') + "/"
+                val request = Request.Builder().url(root + "v1/platform/access").get().build()
+                jarvisCloudSession.authenticatedClient().newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) throw IllegalStateException("Could not read platform role (HTTP ${response.code}).")
+                    val json = JsonParser.parseString(response.body.string()).asJsonObject
+                    val role = json.get("role")?.asString ?: "user"
+                    _platformRole.value = role
+                    if (role == "owner") loadPlatformAdmins(root) else _platformAdmins.value = emptyList()
+                }
+            }.onFailure {
+                _platformRole.value = "unknown"
+                _adminManagementStatus.value = it.message?.take(140) ?: "Unable to load platform access."
+            }
+        }
+    }
+
+    private fun loadPlatformAdmins(root: String) {
+        val request = Request.Builder().url(root + "v1/platform/admins").get().build()
+        jarvisCloudSession.authenticatedClient().newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Could not load trusted Admins (HTTP ${response.code}).")
+            val array = JsonParser.parseString(response.body.string()).asJsonObject.getAsJsonArray("admins")
+            _platformAdmins.value = array.map { item ->
+                val admin = item.asJsonObject
+                JarvisPlatformAdmin(
+                    name = admin.get("name")?.asString.orEmpty(),
+                    email = admin.get("email")?.asString.orEmpty()
+                )
+            }
+        }
+    }
+
+    fun changePlatformAdmin(email: String, action: String) {
+        if (_platformRole.value != "owner" || action !in setOf("grant", "revoke")) return
+        val cleanEmail = email.trim()
+        if (cleanEmail.isBlank()) {
+            _adminManagementStatus.value = "Enter the trusted person's registered email."
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                val root = BuildConfig.JARVIS_CLOUD_BASE_URL.trimEnd('/') + "/"
+                val payload = Gson().toJson(mapOf("email" to cleanEmail, "action" to action))
+                    .toRequestBody("application/json; charset=utf-8".toMediaType())
+                val request = Request.Builder().url(root + "v1/platform/admins").post(payload).build()
+                jarvisCloudSession.authenticatedClient().newCall(request).execute().use { response ->
+                    val body = response.body.string()
+                    if (!response.isSuccessful) {
+                        val error = runCatching { JsonParser.parseString(body).asJsonObject.get("error").asString }.getOrNull()
+                        throw IllegalStateException(error ?: "Admin update failed (HTTP ${response.code}).")
+                    }
+                }
+                loadPlatformAdmins(root)
+            }.onSuccess {
+                _adminEmail.value = ""
+                _adminManagementStatus.value = if (action == "grant") "Admin access granted." else "Admin access revoked."
+            }.onFailure {
+                _adminManagementStatus.value = it.message?.take(160) ?: "Admin update failed."
             }
         }
     }

@@ -1,6 +1,40 @@
 import { describe, expect, it } from "vitest";
-import worker from "../src/index";
+import worker, { resolvePlatformRole } from "../src/index";
 const env = { DB: {} as D1Database, JARVIS_ENV: "test", ALLOWED_ORIGIN: "http://localhost:8080" };
+describe("JARVIS single-owner platform roles", () => {
+  it("grants Owner only to the configured verified email", () => {
+    expect(resolvePlatformRole(
+      { email: "OWNER@example.com", emailVerified: true },
+      "owner@example.com",
+      false
+    )).toMatchObject({ role: "owner", isOwner: true, isAdmin: true });
+  });
+
+  it("does not grant Owner to an unverified matching account", () => {
+    expect(resolvePlatformRole(
+      { email: "owner@example.com", emailVerified: false },
+      "owner@example.com",
+      false
+    )).toMatchObject({ role: "user", isOwner: false, isAdmin: false });
+  });
+
+  it("never lets a trusted Admin become another Owner", () => {
+    expect(resolvePlatformRole(
+      { email: "helper@example.com", emailVerified: true },
+      "owner@example.com",
+      true
+    )).toMatchObject({ role: "admin", isOwner: false, isAdmin: true });
+  });
+
+  it("defaults to User and grants no Owner if no owner email is configured", () => {
+    expect(resolvePlatformRole(
+      { email: "anyone@example.com", emailVerified: true },
+      "",
+      false
+    )).toMatchObject({ role: "user", isOwner: false, isAdmin: false });
+  });
+});
+
 describe("JARVIS Cloud API foundation", () => {
  it("returns a non-sensitive health response", async () => {
   const response = await worker.fetch(new Request("https://jarvis.test/health"), env);

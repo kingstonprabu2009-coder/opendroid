@@ -8,6 +8,8 @@ export interface Env {
   BETTER_AUTH_SECRET?: string;
   AI?: Ai;
   JARVIS_MODEL?: string;
+  /** Exact account email allowed to hold the single platform Owner role. Set as a server secret. */
+  JARVIS_OWNER_EMAIL?: string;
 }
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -32,6 +34,38 @@ function withCors(response: Response, origin?: string): Response {
   headers.set("cache-control", "no-store");
   headers.set("x-content-type-options", "nosniff");
   return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+function normalizeEmail(value: string): string {
+  return value.trim().toLowerCase();
+}
+
+export function resolvePlatformRole(
+  user: { email: string; emailVerified?: boolean },
+  configuredOwnerEmail: string,
+  isTrustedAdmin: boolean
+) {
+  const ownerEmail = normalizeEmail(configuredOwnerEmail);
+  const accountEmail = normalizeEmail(user.email);
+  // The configured owner identity can never become a second role, even before verification.
+  if (ownerEmail && accountEmail === ownerEmail) {
+    return user.emailVerified === true
+      ? { role: "owner" as const, isOwner: true, isAdmin: true }
+      : { role: "user" as const, isOwner: false, isAdmin: false };
+  }
+  return isTrustedAdmin
+    ? { role: "admin" as const, isOwner: false, isAdmin: true }
+    : { role: "user" as const, isOwner: false, isAdmin: false };
+}
+
+async function platformAccess(env: Env, user: { id: string; email: string; emailVerified?: boolean }) {
+  const ownerEmail = env.JARVIS_OWNER_EMAIL ? normalizeEmail(env.JARVIS_OWNER_EMAIL) : "";
+  if (ownerEmail && normalizeEmail(user.email) === ownerEmail) {
+    return resolvePlatformRole(user, ownerEmail, false);
+  }
+  const admin = await env.DB.prepare("SELECT user_id FROM platform_admins WHERE user_id = ?")
+    .bind(user.id).first<{ user_id: string }>();
+  return resolvePlatformRole(user, ownerEmail, !!admin);
 }
 
 function createAuth(env: Env) {
@@ -83,6 +117,59 @@ export default {
       if (!auth) return json({ error: "auth_not_configured" }, 503, corsOrigin);
       const authSession = await auth.api.getSession({ headers: request.headers });
       if (!authSession?.user?.id) return json({ error: "unauthorized" }, 401, corsOrigin);
+
+      const access = await platformAccess(env, authSession.user);
+      if (url.pathname === "/v1/platform/access" && request.method === "GET") {
+        return json({ role: access.role, canManageAdmins: access.isOwner }, 200, corsOrigin);
+      }
+
+      if (url.pathname === "/v1/platform/admins" && request.method === "GET") {
+        if (!access.isOwner) return json({ error: "owner_only" }, 403, corsOrigin);
+        const result = await env.DB.prepare(
+          `SELECT u.id, u.name, u.email, p.created_at, grantor.email AS granted_by_email
+           FROM platform_admins p
+           JOIN "user" u ON u.id = p.user_id
+           JOIN "user" grantor ON grantor.id = p.granted_by_user_id
+           ORDER BY p.created_at ASC`
+        ).all();
+        return json({ admins: result.results ?? [] }, 200, corsOrigin);
+      }
+
+      if (url.pathname === "/v1/platform/admins" && request.method === "POST") {
+        if (!access.isOwner) return json({ error: "owner_only" }, 403, corsOrigin);
+        let body: unknown;
+        try { body = await request.json(); } catch {
+          return json({ error: "invalid_json" }, 400, corsOrigin);
+        }
+        const email = typeof body === "object" && body !== null && "email" in body
+          ? normalizeEmail(String((body as { email?: unknown }).email ?? ""))
+          : "";
+        const action = typeof body === "object" && body !== null && "action" in body
+          ? (body as { action?: unknown }).action
+          : null;
+        if (!email || email.length > 254 || !email.includes("@") || (action !== "grant" && action !== "revoke")) {
+          return json({ error: "invalid_admin_change" }, 400, corsOrigin);
+        }
+        if (email === normalizeEmail(authSession.user.email)) {
+          return json({ error: "owner_cannot_be_admin" }, 400, corsOrigin);
+        }
+        const target = await env.DB.prepare(
+          'SELECT id, emailVerified FROM "user" WHERE lower(email) = ?'
+        ).bind(email).first<{ id: string; emailVerified: number }>();
+        if (!target) return json({ error: "user_not_found" }, 404, corsOrigin);
+        if (action === "grant") {
+          if (target.emailVerified !== 1) return json({ error: "email_not_verified" }, 409, corsOrigin);
+          await env.DB.prepare(
+            "INSERT OR IGNORE INTO platform_admins (user_id, granted_by_user_id) VALUES (?, ?)"
+          ).bind(target.id, authSession.user.id).run();
+        } else {
+          await env.DB.prepare("DELETE FROM platform_admins WHERE user_id = ?").bind(target.id).run();
+        }
+        await env.DB.prepare(
+          "INSERT INTO audit_events (id, actor_user_id, event_type, resource_type, resource_id) VALUES (?, ?, ?, 'platform_admin', ?)"
+        ).bind(crypto.randomUUID(), authSession.user.id, action === "grant" ? "platform.admin.granted" : "platform.admin.revoked", target.id).run();
+        return json({ ok: true, action, email }, 200, corsOrigin);
+      }
 
       if (url.pathname === "/v1/chat" && request.method === "POST") {
         if (!env.AI) {
@@ -161,7 +248,7 @@ export default {
 
       if (url.pathname === "/v1/teams" && request.method === "GET") {
         const result = await env.DB.prepare(
-          `SELECT t.id, t.name, m.role, t.created_at
+          `SELECT t.id, t.name, 'member' AS role, t.created_at
            FROM team_memberships m JOIN teams t ON t.id = m.team_id
            WHERE m.user_id = ? AND t.archived_at IS NULL
            ORDER BY t.created_at DESC`
@@ -185,12 +272,12 @@ export default {
         await env.DB.batch([
           env.DB.prepare("INSERT INTO teams (id, name, created_by) VALUES (?, ?, ?)")
             .bind(teamId, name, authSession.user.id),
-          env.DB.prepare("INSERT INTO team_memberships (team_id, user_id, role) VALUES (?, ?, 'owner')")
+          env.DB.prepare("INSERT INTO team_memberships (team_id, user_id, role) VALUES (?, ?, 'member')")
             .bind(teamId, authSession.user.id),
           env.DB.prepare("INSERT INTO audit_events (id, actor_user_id, team_id, event_type, resource_type, resource_id) VALUES (?, ?, ?, 'team.created', 'team', ?)")
             .bind(eventId, authSession.user.id, teamId, teamId)
         ]);
-        return json({ team: { id: teamId, name, role: "owner" } }, 201, corsOrigin);
+        return json({ team: { id: teamId, name, role: "member" } }, 201, corsOrigin);
       }
 
       return json({ error: "not_found" }, 404, corsOrigin);
