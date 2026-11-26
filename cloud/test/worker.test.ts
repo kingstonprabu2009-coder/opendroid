@@ -57,3 +57,14 @@ describe("JARVIS team API access control", () => {
     await expect(response.json()).resolves.toMatchObject({ error: "auth_not_configured" });
   });
 });
+
+describe("JARVIS chat gateway validation", () => {
+  it("requires a signed-in session before checking model availability", async () => {
+    const response = await worker.fetch(new Request("https://jarvis.test/v1/chat", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ messages: [{ role: "user", content: "Hello" }] })
+    }), env);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: "auth_not_configured" });
+  });
+});

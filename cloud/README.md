@@ -33,3 +33,12 @@ Configure secrets only through the provider secret manager.
 - CORS is exact-origin allowlisted and credentialed; D1-backed rate limiting uses `CF-Connecting-IP` for client identity.
 - Before public signup: configure a real email delivery provider, require email verification, add Android secure cookie/session handling, and run D1-backed end-to-end tests.
 - Team endpoints remain disabled until every query is scoped to the authenticated user/team and role checks are tested.
+
+## JARVIS model gateway contract
+- `POST /v1/chat` requires a valid Better Auth session (session cookie is checked server-side).
+- Request body: `{ "messages": [{ "role": "user" | "assistant", "content": "..." }] }`.
+- The server supplies the system instruction; clients cannot override it.
+- Requests are limited to 32 messages and 12,000 characters per message.
+- Inference uses the optional Cloudflare Workers AI binding `AI`; model selection is `JARVIS_MODEL`, defaulting to `@cf/meta/llama-3.1-8b-instruct`.
+- If the binding is absent, the route returns `503 model_not_configured`. No fake response or vendor fallback is used.
+- This is an open-weight hosted inference adapter for the JARVIS agent runtime, not a claim that JARVIS has trained its own foundation model. Model availability, account eligibility, and quotas must be confirmed before deployment.

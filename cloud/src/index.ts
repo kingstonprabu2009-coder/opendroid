@@ -6,6 +6,8 @@ export interface Env {
   ALLOWED_ORIGIN: string;
   BETTER_AUTH_URL?: string;
   BETTER_AUTH_SECRET?: string;
+  AI?: Ai;
+  JARVIS_MODEL?: string;
 }
 
 const JSON_HEADERS = { "content-type": "application/json; charset=utf-8" };
@@ -81,6 +83,60 @@ export default {
       if (!auth) return json({ error: "auth_not_configured" }, 503, corsOrigin);
       const authSession = await auth.api.getSession({ headers: request.headers });
       if (!authSession?.user?.id) return json({ error: "unauthorized" }, 401, corsOrigin);
+
+      if (url.pathname === "/v1/chat" && request.method === "POST") {
+        if (!env.AI) {
+          return json({ error: "model_not_configured", message: "JARVIS model runtime is not configured on this cloud environment." }, 503, corsOrigin);
+        }
+        let body: unknown;
+        try { body = await request.json(); } catch {
+          return json({ error: "invalid_json" }, 400, corsOrigin);
+        }
+        const rawMessages = typeof body === "object" && body !== null && "messages" in body
+          ? (body as { messages?: unknown }).messages
+          : null;
+        if (!Array.isArray(rawMessages) || rawMessages.length < 1 || rawMessages.length > 32) {
+          return json({ error: "invalid_messages", message: "Provide between 1 and 32 chat messages." }, 400, corsOrigin);
+        }
+        const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+        for (const item of rawMessages) {
+          if (typeof item !== "object" || item === null || !("role" in item) || !("content" in item)) {
+            return json({ error: "invalid_message" }, 400, corsOrigin);
+          }
+          const role = (item as { role: unknown }).role;
+          const content = (item as { content: unknown }).content;
+          if ((role !== "user" && role !== "assistant") || typeof content !== "string" || !content.trim() || content.length > 12000) {
+            return json({ error: "invalid_message" }, 400, corsOrigin);
+          }
+          messages.push({ role, content });
+        }
+        if (!messages.some(message => message.role === "user")) {
+          return json({ error: "user_message_required" }, 400, corsOrigin);
+        }
+        const model = env.JARVIS_MODEL?.trim() || "@cf/meta/llama-3.1-8b-instruct";
+        try {
+          const result = await env.AI.run(model, {
+            messages: [
+              { role: "system", content: "You are JARVIS, a helpful AI assistant. Be accurate, safe, and clear. Do not claim to have performed actions unless a connected tool confirms them." },
+              ...messages
+            ],
+            max_tokens: 1200,
+          });
+          const responseText = typeof result === "object" && result !== null && "response" in result
+            ? String((result as { response?: unknown }).response ?? "")
+            : "";
+          if (!responseText.trim()) {
+            return json({ error: "empty_model_response" }, 502, corsOrigin);
+          }
+          return json({
+            id: crypto.randomUUID(),
+            model,
+            choices: [{ index: 0, message: { role: "assistant", content: responseText }, finish_reason: "stop" }]
+          }, 200, corsOrigin);
+        } catch {
+          return json({ error: "model_unavailable", message: "JARVIS model runtime could not complete this request." }, 502, corsOrigin);
+        }
+      }
 
       if (url.pathname === "/v1/teams" && request.method === "GET") {
         const result = await env.DB.prepare(
