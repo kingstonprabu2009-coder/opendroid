@@ -152,6 +152,7 @@ class LLMProviderFactoryUnknownProviderTest {
             gemmaProvider = unused("Gemma"),
             liteRTLMProvider = unused("LiteRT-LM"),
             hybridOnDeviceProvider = unused("Hybrid"),
+            llamaCppProvider = unused("Llama.cpp"),
             settingsRepository = settings,
             onDeviceLatencyTracker = OnDeviceLatencyTracker(settings),
             actionDispatcher = dagger.Lazy<ActionDispatcher> { throw AssertionError("unused") },
