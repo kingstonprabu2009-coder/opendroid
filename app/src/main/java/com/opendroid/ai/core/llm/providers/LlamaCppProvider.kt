@@ -58,8 +58,11 @@ class LlamaCppProvider @Inject constructor(private val context: Context) : LLMPr
         if (!dir.exists() && !dir.mkdirs()) error("Cannot create model storage")
         val request = DownloadManager.Request(Uri.parse(MODEL_URL))
             .setTitle("JARVIS Qwen 2.5 7B model")
-            .setDescription("Downloading approximately 4.68 GB. Wi-Fi recommended.")
+            .setDescription("Downloading approximately 4.68 GB over mobile data or Wi-Fi.")
             .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+            // Explicitly allow metered cellular data as well as Wi-Fi.
+            .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
+            .setAllowedOverMetered(true)
             .setAllowedOverRoaming(false)
             .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, MODEL_FILE)
         val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
@@ -80,7 +83,7 @@ class LlamaCppProvider @Inject constructor(private val context: Context) : LLMPr
         val memory = ActivityManager.MemoryInfo()
         (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(memory)
         if (memory.lowMemory || memory.availMem < MIN_AVAILABLE_RAM) {
-            throw IllegalStateException("7B needs at least 4 GB currently available RAM for this safety profile. Close other apps or use a smaller model; JARVIS stopped safely to protect your phone.")
+            throw IllegalStateException("7B needs at least 4 GB currently available RAM for this safety profile. Close other apps and retry when more physical RAM is available; JARVIS stopped safely to protect your phone.")
         }
         val stat = StatFs(modelFile.parentFile?.absolutePath ?: context.filesDir.absolutePath)
         if (stat.availableBytes < MIN_FREE_STORAGE) {

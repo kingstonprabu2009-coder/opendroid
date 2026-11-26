@@ -786,7 +786,7 @@ fun SettingsScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("LOCAL QWEN 2.5 7B MODEL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Q4_K_M model is approximately 4.68 GB. Keep at least 5.5 GB free and prefer Wi-Fi. Android may use a metered connection if your Wi-Fi is marked metered. 7B inference may exceed available RAM on some 6 GB phones; JARVIS checks memory and stops safely.", fontSize = 12.sp, color = TextSecondary)
+                            Text("Q4_K_M model is approximately 4.68 GB. Keep at least 5.5 GB free and prefer Wi-Fi. Wi-Fi and mobile data are supported; mobile data charges may apply. 7B inference may exceed available physical RAM on some 6 GB phones; JARVIS checks memory and stops safely.", fontSize = 12.sp, color = TextSecondary)
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(downloadMessage, fontSize = 12.sp, color = TextPrimary)
                             if (downloadId >= 0L && (downloadStatus == android.app.DownloadManager.STATUS_RUNNING || downloadStatus == android.app.DownloadManager.STATUS_PAUSED || downloadStatus == android.app.DownloadManager.STATUS_PENDING)) {
@@ -803,6 +803,8 @@ fun SettingsScreen(
                                             .setTitle("JARVIS Qwen 2.5 7B")
                                             .setDescription("Downloading approximately 4.68 GB")
                                             .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
+                                            // Explicitly permit cellular data and Wi-Fi; roaming stays disabled.
+                                            .setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
                                             .setAllowedOverMetered(true)
                                             .setAllowedOverRoaming(false)
                                             .setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")

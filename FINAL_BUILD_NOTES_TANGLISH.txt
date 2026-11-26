@@ -1,0 +1,23 @@
+JARVIS / OPENDROID - SOURCE ZIP NOTES
+
+WHAT IS INCLUDED
+- Existing OpenDroid app source and its existing assistant/action/memory/teaching/voice modules.
+- Local Qwen 2.5 7B Instruct Q4_K_M GGUF provider and arm64 llama.cpp JNI/CMake integration.
+- Qwen 7B remains the only model in the Llama.cpp provider; no smaller-model fallback was added.
+- Local 7B provider is isolated from cloud-provider fallback in LLMProviderFactory.
+- Qwen model is downloaded separately by the app (about 4.68 GB); it is NOT embedded in the APK.
+- Both the provider download path and Settings-screen download button explicitly allow Wi-Fi and mobile data, while roaming remains disabled.
+- GitHub Actions now runs unit tests and then assembles the debug APK; the APK is uploaded as a workflow artifact.
+
+IMPORTANT LIMITS
+- This ZIP is source code, not an APK.
+- The 7B GGUF model is a separate ~4.68 GB download after installing the APK.
+- 7B Q4 inference needs substantial physical RAM. POCO M3 6 GB + virtual RAM does not guarantee that 7B will load or run reliably. The app retains its available-RAM safety check and may refuse to load.
+- Android SpeechRecognizer may use the device speech service; fully offline speech recognition is not guaranteed by this source.
+- No claim is made that every feature works exactly like ChatGPT or that JARVIS is superior to ChatGPT.
+
+VALIDATION PERFORMED IN THIS SANDBOX
+- ZIP/source was extracted successfully.
+- Source-level checks were performed for the Qwen 7B provider, arm64 native build wiring, local-only fallback isolation, teaching/memory/voice/action modules, and download configuration.
+- ZIP integrity will be checked after packaging.
+- Gradle unit tests and APK compilation could NOT be run here because the Gradle 9.7 distribution could not be downloaded: network DNS access to services.gradle.org is unavailable in this sandbox. GitHub Actions is configured to run both checks after push.
