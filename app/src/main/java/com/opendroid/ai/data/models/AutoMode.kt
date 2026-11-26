@@ -27,7 +27,6 @@ enum class AutoMode {
             "TOGGLE_FLASHLIGHT", "TOGGLE_DND", "SET_BRIGHTNESS", "SET_VOLUME",
             "SET_RINGER_MODE", "GET_SYSTEM_INFO",
             // Opening apps and sites: Jarvis asks only once, not every time.
-            "OPEN_APP", "PLAY_YOUTUBE", "OPEN_URL", "OPEN_BROWSER"
         )
     }
 }
