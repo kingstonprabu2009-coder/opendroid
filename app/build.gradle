@@ -117,6 +117,13 @@ android {
             // their default value instead of throwing so those boundaries stay testable without
             // a Log double.
             returnDefaultValues = true
+            // Robolectric fetches android-all jars itself (outside Gradle's
+            // dependency resolver). Use Maven Central's canonical endpoint
+            // instead of Robolectric's legacy repo1 hostname.
+            all {
+                systemProperty "robolectric.dependency.repo.url", "https://repo.maven.apache.org/maven2"
+                systemProperty "robolectric.dependency.repo.id", "central"
+            }
         }
     }
     sourceSets {
