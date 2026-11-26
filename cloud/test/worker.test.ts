@@ -12,7 +12,7 @@ describe("JARVIS Cloud API foundation", () => {
  it("keeps application routes disabled until security is ready", async () => {
   const response = await worker.fetch(new Request("https://jarvis.test/v1/chat",{method:"POST"}),env);
   expect(response.status).toBe(503);
-  await expect(response.json()).resolves.toMatchObject({error:"service_not_configured"});
+  await expect(response.json()).resolves.toMatchObject({error:"auth_not_configured"});
  });
  it("rejects unapproved browser origins", async () => {
   const response = await worker.fetch(new Request("https://jarvis.test/health",{headers:{Origin:"https://untrusted.example"}}),env);
@@ -38,5 +38,22 @@ describe("JARVIS authentication gateway", () => {
     }), env);
     expect(response.status).toBe(403);
     expect(response.headers.get("access-control-allow-origin")).toBeNull();
+  });
+});
+
+describe("JARVIS team API access control", () => {
+  it("does not expose team data when auth is not configured", async () => {
+    const response = await worker.fetch(new Request("https://jarvis.test/v1/teams"), env);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: "auth_not_configured" });
+  });
+
+  it("does not accept team creation when auth is not configured", async () => {
+    const response = await worker.fetch(new Request("https://jarvis.test/v1/teams", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "My team" })
+    }), env);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: "auth_not_configured" });
   });
 });

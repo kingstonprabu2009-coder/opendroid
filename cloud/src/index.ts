@@ -77,7 +77,46 @@ export default {
       return withCors(await auth.handler(request), corsOrigin);
     }
     if (url.pathname.startsWith("/v1/")) {
-      return json({ error: "service_not_configured", message: "JARVIS API routes remain disabled until authorization, team isolation, quotas, and the JARVIS model gateway are implemented." }, 503, corsOrigin);
+      const auth = createAuth(env);
+      if (!auth) return json({ error: "auth_not_configured" }, 503, corsOrigin);
+      const authSession = await auth.api.getSession({ headers: request.headers });
+      if (!authSession?.user?.id) return json({ error: "unauthorized" }, 401, corsOrigin);
+
+      if (url.pathname === "/v1/teams" && request.method === "GET") {
+        const result = await env.DB.prepare(
+          `SELECT t.id, t.name, m.role, t.created_at
+           FROM team_memberships m JOIN teams t ON t.id = m.team_id
+           WHERE m.user_id = ? AND t.archived_at IS NULL
+           ORDER BY t.created_at DESC`
+        ).bind(authSession.user.id).all();
+        return json({ teams: result.results ?? [] }, 200, corsOrigin);
+      }
+
+      if (url.pathname === "/v1/teams" && request.method === "POST") {
+        let body: unknown;
+        try { body = await request.json(); } catch {
+          return json({ error: "invalid_json" }, 400, corsOrigin);
+        }
+        const name = typeof body === "object" && body !== null && "name" in body
+          ? String((body as { name?: unknown }).name ?? "").trim()
+          : "";
+        if (!name || name.length > 80) {
+          return json({ error: "invalid_team_name", message: "Team name must contain 1 to 80 characters." }, 400, corsOrigin);
+        }
+        const teamId = crypto.randomUUID();
+        const eventId = crypto.randomUUID();
+        await env.DB.batch([
+          env.DB.prepare("INSERT INTO teams (id, name, created_by) VALUES (?, ?, ?)")
+            .bind(teamId, name, authSession.user.id),
+          env.DB.prepare("INSERT INTO team_memberships (team_id, user_id, role) VALUES (?, ?, 'owner')")
+            .bind(teamId, authSession.user.id),
+          env.DB.prepare("INSERT INTO audit_events (id, actor_user_id, team_id, event_type, resource_type, resource_id) VALUES (?, ?, ?, 'team.created', 'team', ?)")
+            .bind(eventId, authSession.user.id, teamId, teamId)
+        ]);
+        return json({ team: { id: teamId, name, role: "owner" } }, 201, corsOrigin);
+      }
+
+      return json({ error: "not_found" }, 404, corsOrigin);
     }
     return json({ error: "not_found" }, 404, corsOrigin);
   }
