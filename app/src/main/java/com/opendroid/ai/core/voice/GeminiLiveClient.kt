@@ -191,6 +191,10 @@ class GeminiLiveClient(
                 .also { if (model.contains("2.5")) it.put("thinkingConfig", JSONObject().put("thinkingBudget", 0)) }
                 .put("speechConfig", JSONObject().put("voiceConfig", JSONObject()
                     .put("prebuiltVoiceConfig", JSONObject().put("voiceName", voiceHeld)))))
+            // Transcription is opt-in in Gemini Live setup; without these empty configs
+            // the server sends audio but no input/output subtitle events.
+            .put("inputAudioTranscription", JSONObject())
+            .put("outputAudioTranscription", JSONObject())
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM + memoryHeld))))
             .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(phoneTool).put(youtubeTool).put(openAppTool).put(readScreenTool).put(tapTool).put(typeTool).put(scrollTool).put(navTool).put(rememberTool).put(stopTool))))
         // Reply fast: treat ~0.6 s of silence as the end of the user's turn.
