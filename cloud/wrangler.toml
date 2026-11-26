@@ -1,0 +1,17 @@
+name = "jarvis-cloud-api"
+main = "src/index.ts"
+compatibility_date = "2026-11-26"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+JARVIS_ENV = "development"
+ALLOWED_ORIGIN = "http://localhost:8080"
+BETTER_AUTH_URL = "http://localhost:8787"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "jarvis-db"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+migrations_dir = "migrations"
+
+# Store secrets in provider secret manager, never commit them.
