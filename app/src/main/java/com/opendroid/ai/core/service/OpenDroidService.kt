@@ -327,6 +327,15 @@ class OpenDroidService : Service() {
                     }
                 },
                 onStopRequested = { serviceScope.launch { endLive(); handleBye() } },
+                onInputTranscript = { text ->
+                    serviceScope.launch {
+                        VoiceSubtitles.heard.value = text
+                        VoiceSubtitles.reply.value = ""
+                    }
+                },
+                onOutputTranscript = { text ->
+                    serviceScope.launch { VoiceSubtitles.reply.value = text }
+                },
                 onClosed = { reason ->
                     serviceScope.launch {
                         VoiceSubtitles.reply.value = reason

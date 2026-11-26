@@ -34,7 +34,9 @@ class GeminiLiveClient(
     private val onStatus: (String) -> Unit,
     private val onTool: (name: String, args: JSONObject, respond: (String) -> Unit) -> Unit,
     private val onClosed: (String) -> Unit,
-    private val onStopRequested: () -> Unit = {}
+    private val onStopRequested: () -> Unit = {},
+    private val onInputTranscript: (String) -> Unit = {},
+    private val onOutputTranscript: (String) -> Unit = {}
 ) {
     private val http = OkHttpClient.Builder()
         .readTimeout(0, TimeUnit.MILLISECONDS)
@@ -210,6 +212,12 @@ class GeminiLiveClient(
             return
         }
         msg.optJSONObject("serverContent")?.let { sc ->
+            // Gemini Live sends transcription separately from the audio chunks.
+            // Forward both directions so the Live screen can show real subtitles.
+            sc.optJSONObject("inputTranscription")?.optString("text")
+                ?.takeIf { it.isNotBlank() }?.let(onInputTranscript)
+            sc.optJSONObject("outputTranscription")?.optString("text")
+                ?.takeIf { it.isNotBlank() }?.let(onOutputTranscript)
             if (sc.optBoolean("interrupted", false)) {
                 flushOutput()
                 speakingNow = false
