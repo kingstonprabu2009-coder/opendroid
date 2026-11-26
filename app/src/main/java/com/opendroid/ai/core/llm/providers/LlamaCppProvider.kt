@@ -1,10 +1,7 @@
 package com.opendroid.ai.core.llm.providers
 
 import android.app.ActivityManager
-import android.app.DownloadManager
 import android.content.Context
-import android.net.Uri
-import android.os.Environment
 import android.os.StatFs
 import android.util.Log
 import com.opendroid.ai.core.llm.LLMProvider
@@ -48,26 +45,15 @@ class LlamaCppProvider @Inject constructor(private val context: Context) : LLMPr
     override val name: String = "Llama.cpp (Local 7B)"
     override val availableModels: List<String> = listOf(MODEL_ID)
     private val native = LlamaCppNative()
+    // Private app storage: never writes the multi-GB model into the public Downloads folder.
     private val modelFile: File
-        get() = File(context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: context.filesDir, MODEL_FILE)
+        get() = File(File(context.filesDir, "models"), MODEL_FILE)
     @Volatile private var loaded = false
 
-    /** Starts the official GGUF download through Android's system Download Manager. */
-    fun enqueueModelDownload(): Long {
-        val dir = modelFile.parentFile ?: error("Model storage is unavailable")
-        if (!dir.exists() && !dir.mkdirs()) error("Cannot create model storage")
-        val request = DownloadManager.Request(Uri.parse(MODEL_URL))
-            .setTitle("JARVIS Qwen 2.5 7B model")
-            .setDescription("Downloading approximately 4.68 GB over mobile data or Wi-Fi.")
-            .setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-            // Explicitly allow metered cellular data as well as Wi-Fi.
-            .setAllowedNetworkTypes(DownloadManager.Request.NETWORK_WIFI or DownloadManager.Request.NETWORK_MOBILE)
-            .setAllowedOverMetered(true)
-            .setAllowedOverRoaming(false)
-            .setDestinationInExternalFilesDir(context, Environment.DIRECTORY_DOWNLOADS, MODEL_FILE)
-        val manager = context.getSystemService(Context.DOWNLOAD_SERVICE) as DownloadManager
-        return manager.enqueue(request)
-    }
+    /** Schedules the Qwen GGUF transfer through the app-owned, cellular-capable worker. */
+    fun enqueueModelDownload(): java.util.UUID =
+        com.opendroid.ai.core.llm.QwenGgufDownload.enqueue(context)
+
 
     fun isModelDownloaded(): Boolean {
         if (!modelFile.isFile || modelFile.length() < 4_500_000_000L) return false

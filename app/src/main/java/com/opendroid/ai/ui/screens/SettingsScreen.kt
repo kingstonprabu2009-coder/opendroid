@@ -65,6 +65,7 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
 import kotlinx.coroutines.launch
+import androidx.work.getWorkInfosForUniqueWorkFlow
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -739,46 +740,31 @@ fun SettingsScreen(
             if (config.activeProvider == "Llama.cpp (Local 7B)") {
                 item {
                     val context = LocalContext.current
-                    val manager = remember(context) { context.getSystemService(Context.DOWNLOAD_SERVICE) as android.app.DownloadManager }
-                    val prefs = remember(context) { context.getSharedPreferences("jarvis_qwen_download", Context.MODE_PRIVATE) }
-                    var downloadId by remember { mutableLongStateOf(prefs.getLong("download_id", -1L)) }
-                    var downloadedBytes by remember { mutableLongStateOf(0L) }
-                    var totalBytes by remember { mutableLongStateOf(-1L) }
-                    var downloadStatus by remember { mutableIntStateOf(android.app.DownloadManager.STATUS_PENDING) }
-                    var downloadReason by remember { mutableIntStateOf(0) }
-                    var downloadMessage by remember { mutableStateOf("Model not downloaded") }
-                    LaunchedEffect(downloadId) {
-                        while (downloadId >= 0L) {
-                            val cursor = runCatching { manager.query(android.app.DownloadManager.Query().setFilterById(downloadId)) }.getOrNull()
-                            if (cursor == null) {
-                                downloadMessage = "Download status unavailable. You can retry."
-                                break
-                            }
-                            cursor.use {
-                                if (it.moveToFirst()) {
-                                    downloadStatus = it.getInt(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_STATUS))
-                                    downloadReason = it.getInt(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_REASON))
-                                    downloadedBytes = it.getLong(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
-                                    totalBytes = it.getLong(it.getColumnIndexOrThrow(android.app.DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
-                                    downloadMessage = when (downloadStatus) {
-                                        android.app.DownloadManager.STATUS_PENDING -> "Waiting for network / queued"
-                                        android.app.DownloadManager.STATUS_RUNNING -> "Downloading"
-                                        android.app.DownloadManager.STATUS_PAUSED -> "Paused by Android (reason $downloadReason)"
-                                        android.app.DownloadManager.STATUS_SUCCESSFUL -> "Download complete — validating GGUF file"
-                                        android.app.DownloadManager.STATUS_FAILED -> "Download failed (reason $downloadReason). Tap Retry."
-                                        else -> "Checking download status"
-                                    }
-                                } else {
-                                    downloadMessage = "Download record not found. Tap Retry."
-                                    downloadId = -1L
-                                    prefs.edit().remove("download_id").apply()
-                                }
-                            }
-                            if (downloadStatus == android.app.DownloadManager.STATUS_SUCCESSFUL || downloadStatus == android.app.DownloadManager.STATUS_FAILED) break
-                            kotlinx.coroutines.delay(1000)
-                        }
+                    val workManager = remember(context) { androidx.work.WorkManager.getInstance(context) }
+                    val workInfos by produceState<List<androidx.work.WorkInfo>>(
+                        initialValue = emptyList(), workManager
+                    ) {
+                        workManager.getWorkInfosForUniqueWorkFlow(
+                            com.opendroid.ai.core.llm.QwenGgufDownload.WORK_NAME
+                        ).collect { value = it }
                     }
-                    val percent = if (totalBytes > 0L) (downloadedBytes * 100L / totalBytes).toInt().coerceIn(0, 100) else 0
+                    val workInfo = workInfos.firstOrNull()
+                    val state = workInfo?.state
+                    val downloaded = workInfo?.progress?.getLong("downloaded", 0L) ?: 0L
+                    val total = workInfo?.progress?.getLong("total", -1L) ?: -1L
+                    val percent = workInfo?.progress?.getInt("percent", -1) ?: -1
+                    val active = state == androidx.work.WorkInfo.State.ENQUEUED ||
+                        state == androidx.work.WorkInfo.State.RUNNING ||
+                        state == androidx.work.WorkInfo.State.BLOCKED
+                    val statusText = when (state) {
+                        androidx.work.WorkInfo.State.SUCCEEDED -> "Qwen 7B downloaded and verified in private app storage"
+                        androidx.work.WorkInfo.State.RUNNING -> "Downloading Qwen 7B over mobile data or Wi-Fi"
+                        androidx.work.WorkInfo.State.ENQUEUED -> "Waiting for mobile data or Wi-Fi"
+                        androidx.work.WorkInfo.State.BLOCKED -> "Waiting to start"
+                        androidx.work.WorkInfo.State.FAILED -> "Download failed. Tap Retry."
+                        androidx.work.WorkInfo.State.CANCELLED -> "Download cancelled"
+                        else -> "Model not downloaded"
+                    }
                     Card(
                         modifier = Modifier.fillMaxWidth().border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
                         colors = CardDefaults.cardColors(containerColor = CardBackground)
@@ -786,47 +772,45 @@ fun SettingsScreen(
                         Column(modifier = Modifier.padding(16.dp)) {
                             Text("LOCAL QWEN 2.5 7B MODEL", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = TextPrimary)
                             Spacer(modifier = Modifier.height(8.dp))
-                            Text("Q4_K_M model is approximately 4.68 GB. Keep at least 5.5 GB free and prefer Wi-Fi. Wi-Fi and mobile data are supported; mobile data charges may apply. 7B inference may exceed available physical RAM on some 6 GB phones; JARVIS checks memory and stops safely.", fontSize = 12.sp, color = TextSecondary)
+                            Text(
+                                "Model size approximately 4.68 GB. Saved only inside JARVIS private app storage, not your phone's Downloads folder. Mobile data and Wi-Fi are supported; data charges may apply. Keep at least 5.5 GB free.",
+                                fontSize = 12.sp, color = TextSecondary
+                            )
                             Spacer(modifier = Modifier.height(12.dp))
-                            Text(downloadMessage, fontSize = 12.sp, color = TextPrimary)
-                            if (downloadId >= 0L && (downloadStatus == android.app.DownloadManager.STATUS_RUNNING || downloadStatus == android.app.DownloadManager.STATUS_PAUSED || downloadStatus == android.app.DownloadManager.STATUS_PENDING)) {
-                                LinearProgressIndicator(progress = { if (totalBytes > 0L) percent / 100f else 0f }, modifier = Modifier.fillMaxWidth())
-                                Text(if (totalBytes > 0L) "$percent%  (${downloadedBytes / 1_048_576} / ${totalBytes / 1_048_576} MB)" else "Waiting for download size…", fontSize = 11.sp, color = TextSecondary)
+                            Text(statusText, fontSize = 12.sp, color = TextPrimary)
+                            if (active || state == androidx.work.WorkInfo.State.SUCCEEDED) {
+                                LinearProgressIndicator(
+                                    progress = { if (percent >= 0) percent / 100f else 0f },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                                val amount = if (total > 0L) {
+                                    "${downloaded / 1_048_576} / ${total / 1_048_576} MB"
+                                } else "${downloaded / 1_048_576} MB downloaded"
+                                Text(if (percent >= 0) "$percent%  ($amount)" else amount,
+                                    fontSize = 11.sp, color = TextSecondary)
                             }
-                            if (downloadStatus == android.app.DownloadManager.STATUS_FAILED) {
-                                Text("Android download error code: $downloadReason", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                            }
+                            Spacer(modifier = Modifier.height(10.dp))
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                                Button(modifier = Modifier.weight(1f), enabled = downloadId < 0L || downloadStatus == android.app.DownloadManager.STATUS_FAILED, onClick = {
-                                    try {
-                                        val request = android.app.DownloadManager.Request(android.net.Uri.parse("https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf"))
-                                            .setTitle("JARVIS Qwen 2.5 7B")
-                                            .setDescription("Downloading approximately 4.68 GB")
-                                            .setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
-                                            // Explicitly permit cellular data and Wi-Fi; roaming stays disabled.
-                                            .setAllowedNetworkTypes(android.app.DownloadManager.Request.NETWORK_WIFI or android.app.DownloadManager.Request.NETWORK_MOBILE)
-                                            .setAllowedOverMetered(true)
-                                            .setAllowedOverRoaming(false)
-                                            .setDestinationInExternalFilesDir(context, android.os.Environment.DIRECTORY_DOWNLOADS, "Qwen2.5-7B-Instruct-Q4_K_M.gguf")
-                                        downloadId = manager.enqueue(request)
-                                        prefs.edit().putLong("download_id", downloadId).apply()
-                                        downloadedBytes = 0L
-                                        totalBytes = -1L
-                                        downloadStatus = android.app.DownloadManager.STATUS_PENDING
-                                        downloadMessage = "Download queued"
-                                    } catch (error: Exception) {
-                                        downloadMessage = "Could not start: ${error.localizedMessage ?: "unknown error"}"
+                                Button(
+                                    modifier = Modifier.weight(1f),
+                                    enabled = !active && state != androidx.work.WorkInfo.State.SUCCEEDED,
+                                    onClick = {
+                                        com.opendroid.ai.core.llm.QwenGgufDownload.enqueue(context)
                                     }
-                                }) { Text(if (downloadStatus == android.app.DownloadManager.STATUS_FAILED) "Retry download" else "Download Qwen 7B") }
-                                if (downloadId >= 0L && downloadStatus != android.app.DownloadManager.STATUS_SUCCESSFUL) {
+                                ) { Text(if (state == androidx.work.WorkInfo.State.FAILED ||
+                                    state == androidx.work.WorkInfo.State.CANCELLED) "Retry download" else "Download Qwen 7B") }
+                                if (active) {
                                     OutlinedButton(onClick = {
-                                        manager.remove(downloadId)
-                                        downloadId = -1L
-                                        prefs.edit().remove("download_id").apply()
-                                        downloadMessage = "Download cancelled"
+                                        workManager.cancelUniqueWork(
+                                            com.opendroid.ai.core.llm.QwenGgufDownload.WORK_NAME
+                                        )
                                     }) { Text("Cancel") }
                                 }
                             }
+                            Text(
+                                "7B model loading depends on available RAM; JARVIS checks memory before starting.",
+                                fontSize = 11.sp, color = TextSecondary
+                            )
                         }
                     }
                 }
