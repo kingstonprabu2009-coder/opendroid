@@ -17,6 +17,9 @@ android {
         targetSdk 36
         versionCode 11
         versionName "1.1.0"
+        // Empty by default: cloud features fail closed until a real HTTPS deployment URL is supplied.
+        def jarvisCloudUrl = (project.findProperty("JARVIS_CLOUD_BASE_URL") ?: "").toString()
+        buildConfigField "String", "JARVIS_CLOUD_BASE_URL", "\"${jarvisCloudUrl}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         ndk { abiFilters 'arm64-v8a' }

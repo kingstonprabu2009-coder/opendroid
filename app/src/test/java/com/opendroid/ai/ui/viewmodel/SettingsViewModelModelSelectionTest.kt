@@ -161,7 +161,8 @@ class SettingsViewModelModelSelectionTest {
         okHttpClient = OkHttpClient(),
         providerCredentialStore = EmptyProviderCredentialStore(),
         appSettingsStore = NoOpAppSettingsStore(),
-        mcpConfigStore = McpConfigStore(context)
+        mcpConfigStore = McpConfigStore(context),
+        jarvisCloudSession = com.opendroid.ai.core.cloud.JarvisCloudSession(EmptyProviderCredentialStore(), OkHttpClient())
     )
 
     private fun stored(): LLMConfig = runBlocking { settings.llmConfig.first() }

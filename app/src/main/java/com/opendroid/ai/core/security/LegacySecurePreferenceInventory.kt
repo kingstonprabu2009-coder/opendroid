@@ -36,6 +36,7 @@ object LegacySecurePreferenceInventory {
         AppSettingsStore.LEGACY_HUGGING_FACE_LAST_VERIFIED_KEY to LegacyValueClass.APP_SETTING,
         ProviderCredentialId.ElevenLabsApiKey.legacyPreferenceKey to LegacyValueClass.PROVIDER_CREDENTIAL,
         ProviderCredentialId.HuggingFaceToken.legacyPreferenceKey to LegacyValueClass.PROVIDER_CREDENTIAL,
+        ProviderCredentialId.JarvisCloudSession.legacyPreferenceKey to LegacyValueClass.PROVIDER_CREDENTIAL,
         MIGRATION_DONE_KEY to LegacyValueClass.OBSOLETE
     )
 

@@ -53,6 +53,12 @@ sealed class ProviderCredentialId protected constructor(
         legacyPreferenceKey = "huggingface_token"
     )
 
+    /** Better Auth session cookie bundle for the first-party JARVIS Cloud account. */
+    data object JarvisCloudSession : ProviderCredentialId(
+        logicalId = "jarvis-cloud-session",
+        legacyPreferenceKey = "jarvis_cloud_session"
+    )
+
     internal companion object {
         private const val STORAGE_KEY_PREFIX = "credential."
         private const val API_KEY_LOGICAL_PREFIX = "provider-api-key:"
@@ -72,6 +78,7 @@ sealed class ProviderCredentialId protected constructor(
         fun fromLegacyPreferenceKey(key: String): ProviderCredentialId? = when {
             key == ElevenLabsApiKey.legacyPreferenceKey -> ElevenLabsApiKey
             key == HuggingFaceToken.legacyPreferenceKey -> HuggingFaceToken
+            key == JarvisCloudSession.legacyPreferenceKey -> JarvisCloudSession
             key.startsWith("llm_api_key_") -> {
                 val provider = key.removePrefix("llm_api_key_")
                 runCatching { ApiKey(provider) }.getOrNull()
@@ -82,6 +89,7 @@ sealed class ProviderCredentialId protected constructor(
         private fun fromLogicalId(logicalId: String): ProviderCredentialId? = when {
             logicalId == ElevenLabsApiKey.logicalId -> ElevenLabsApiKey
             logicalId == HuggingFaceToken.logicalId -> HuggingFaceToken
+            logicalId == JarvisCloudSession.logicalId -> JarvisCloudSession
             logicalId.startsWith(API_KEY_LOGICAL_PREFIX) -> runCatching {
                 ApiKey(logicalId.removePrefix(API_KEY_LOGICAL_PREFIX))
             }.getOrNull()

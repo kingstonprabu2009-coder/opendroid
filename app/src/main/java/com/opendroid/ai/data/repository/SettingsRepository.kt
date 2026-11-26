@@ -197,7 +197,8 @@ class SettingsRepository internal constructor(
             val previousValue = when (credential) {
                 is ProviderCredentialId.ApiKey -> snapshot.providerApiKeys[credential.providerName]
                 ProviderCredentialId.ElevenLabsApiKey -> snapshot.elevenLabsApiKey
-                ProviderCredentialId.HuggingFaceToken -> null
+                ProviderCredentialId.HuggingFaceToken,
+                ProviderCredentialId.JarvisCloudSession -> null
             }
             val result = persistCredential(credential, previousValue)
             if (result !is CredentialStoreResult.Success) return result.toPersistenceState()

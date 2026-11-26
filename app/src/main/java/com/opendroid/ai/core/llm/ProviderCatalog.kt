@@ -23,6 +23,7 @@ object ProviderCatalog {
      * rather than a dated snapshot, so a seed stays valid between releases.
      */
     val providers: List<ProviderSpec> = listOf(
+        ProviderSpec("JARVIS Cloud", "jarvis-cloud"),
         ProviderSpec("Google Gemini", "gemini-2.5-flash"),
         ProviderSpec("OpenAI", "gpt-4o"),
         ProviderSpec("Anthropic Claude", ClaudeModelCatalog.defaultModelId),

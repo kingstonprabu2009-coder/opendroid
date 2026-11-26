@@ -9,6 +9,8 @@ import com.opendroid.ai.data.models.effectiveGrantedActions
 import com.opendroid.ai.data.models.withActiveProvider
 import com.opendroid.ai.data.models.withSelectedModel
 import com.opendroid.ai.data.repository.SettingsRepository
+import com.opendroid.ai.core.cloud.JarvisCloudSession
+import com.opendroid.ai.BuildConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,8 +68,19 @@ class SettingsViewModel @Inject constructor(
     // The verification timestamp says when a token was last checked, never what the token is,
     // so it lives with ordinary settings rather than in encrypted storage.
     private val appSettingsStore: AppSettingsStore,
-    private val mcpConfigStore: McpConfigStore
+    private val mcpConfigStore: McpConfigStore,
+    private val jarvisCloudSession: JarvisCloudSession
 ) : ViewModel() {
+
+    private val _jarvisEmail = MutableStateFlow("")
+    val jarvisEmail: StateFlow<String> = _jarvisEmail.asStateFlow()
+    private val _jarvisPassword = MutableStateFlow("")
+    val jarvisPassword: StateFlow<String> = _jarvisPassword.asStateFlow()
+    private val _jarvisAccountStatus = MutableStateFlow(
+        if (BuildConfig.JARVIS_CLOUD_BASE_URL.startsWith("https://")) "Not signed in" else "Cloud endpoint not configured in this build"
+    )
+    val jarvisAccountStatus: StateFlow<String> = _jarvisAccountStatus.asStateFlow()
+    val jarvisCloudConfigured: Boolean = BuildConfig.JARVIS_CLOUD_BASE_URL.startsWith("https://")
 
     private val _huggingFaceToken = MutableStateFlow("")
     val huggingFaceToken: StateFlow<String> = _huggingFaceToken
@@ -132,6 +145,13 @@ class SettingsViewModel @Inject constructor(
     val mcpResetFailed: StateFlow<Boolean> = _mcpResetFailed
 
     init {
+        if (jarvisCloudConfigured) {
+            viewModelScope.launch(Dispatchers.IO) {
+                _jarvisAccountStatus.value = runCatching {
+                    if (jarvisCloudSession.verifySession(BuildConfig.JARVIS_CLOUD_BASE_URL)) "Signed in" else "Not signed in"
+                }.getOrElse { "Unable to check session" }
+            }
+        }
         viewModelScope.launch(Dispatchers.IO) {
             // The MCP server only reads its secrets when a request arrives; check now so a lost
             // key is reported here even before anything connects.
@@ -191,6 +211,42 @@ class SettingsViewModel @Inject constructor(
             // Wait for initial config loading
             settingsRepository.llmConfig.first()
             refreshModels(force = false)
+        }
+    }
+
+    fun updateJarvisEmail(value: String) { _jarvisEmail.value = value }
+    fun updateJarvisPassword(value: String) { _jarvisPassword.value = value }
+
+    fun signInToJarvisCloud() {
+        val email = _jarvisEmail.value
+        val password = _jarvisPassword.value
+        if (!jarvisCloudConfigured) {
+            _jarvisAccountStatus.value = "Cloud endpoint not configured in this build"
+            return
+        }
+        _jarvisAccountStatus.value = "Signing in..."
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                jarvisCloudSession.signIn(BuildConfig.JARVIS_CLOUD_BASE_URL, email, password)
+            }.onSuccess {
+                _jarvisPassword.value = ""
+                _jarvisAccountStatus.value = "Signed in"
+            }.onFailure {
+                _jarvisAccountStatus.value = it.message?.take(180) ?: "Sign-in failed"
+            }
+        }
+    }
+
+    fun signOutFromJarvisCloud() {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                jarvisCloudSession.signOut(BuildConfig.JARVIS_CLOUD_BASE_URL)
+            }.onSuccess {
+                _jarvisPassword.value = ""
+                _jarvisAccountStatus.value = "Signed out"
+            }.onFailure {
+                _jarvisAccountStatus.value = "Sign-out failed: ${it.message?.take(120) ?: "secure storage unavailable"}"
+            }
         }
     }
 

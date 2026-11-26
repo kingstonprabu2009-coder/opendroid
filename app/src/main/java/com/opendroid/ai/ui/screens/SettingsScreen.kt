@@ -85,6 +85,9 @@ fun SettingsScreen(
     modifier: Modifier = Modifier
 ) {
     val config by viewModel.llmConfig.collectAsState()
+    val jarvisEmail by viewModel.jarvisEmail.collectAsState()
+    val jarvisPassword by viewModel.jarvisPassword.collectAsState()
+    val jarvisAccountStatus by viewModel.jarvisAccountStatus.collectAsState()
     val connectionResults by viewModel.connectionResults.collectAsState()
     val dbModels by viewModel.allModels.collectAsState()
     val storageInfo by viewModel.storageInfo.collectAsState()
@@ -95,6 +98,7 @@ fun SettingsScreen(
     val mcpResetFailed by viewModel.mcpResetFailed.collectAsState()
 
     val providers = listOf(
+        "JARVIS Cloud",
         "Google Gemini",
         "OpenAI",
         "Anthropic Claude",
@@ -272,6 +276,61 @@ fun SettingsScreen(
                                 fontSize = 12.sp,
                                 color = TextSecondary
                             )
+                        }
+                    }
+                }
+            }
+
+            // First-party JARVIS Cloud account. Password remains in memory only and is cleared after sign-in.
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth().border(1.dp, AccentCyan, RoundedCornerShape(12.dp)),
+                    colors = CardDefaults.cardColors(containerColor = CardBackground)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Text(
+                            text = "JARVIS CLOUD ACCOUNT",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = AccentCyan
+                        )
+                        Text(
+                            text = jarvisAccountStatus,
+                            fontSize = 12.sp,
+                            color = if (jarvisAccountStatus == "Signed in") Color(0xFF64D98B) else TextSecondary
+                        )
+                        if (!viewModel.jarvisCloudConfigured) {
+                            Text(
+                                text = "Cloud URL is intentionally unset. After the JARVIS Cloud backend is deployed, the final app build will be configured with its HTTPS address.",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                        } else {
+                            OutlinedTextField(
+                                value = jarvisEmail,
+                                onValueChange = viewModel::updateJarvisEmail,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Email") },
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email)
+                            )
+                            OutlinedTextField(
+                                value = jarvisPassword,
+                                onValueChange = viewModel::updateJarvisPassword,
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text("Password") },
+                                singleLine = true,
+                                visualTransformation = PasswordVisualTransformation()
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Button(onClick = viewModel::signInToJarvisCloud, enabled = jarvisAccountStatus != "Signing in...") {
+                                    Text("Sign in")
+                                }
+                                OutlinedButton(onClick = viewModel::signOutFromJarvisCloud) {
+                                    Text("Sign out")
+                                }
+                            }
                         }
                     }
                 }

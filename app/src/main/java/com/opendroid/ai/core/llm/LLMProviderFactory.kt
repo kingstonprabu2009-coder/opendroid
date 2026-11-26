@@ -29,6 +29,7 @@ class LLMProviderFactory @Inject constructor(
     private val claudeProvider: Provider<ClaudeProvider>,
     private val openAIProvider: Provider<OpenAIProvider>,
     private val geminiProvider: Provider<GeminiProvider>,
+    private val jarvisCloudProvider: Provider<JarvisCloudProvider>,
     private val mistralProvider: Provider<MistralProvider>,
     private val groqProvider: Provider<GroqProvider>,
     private val ollamaProvider: Provider<OllamaProvider>,
@@ -61,6 +62,7 @@ class LLMProviderFactory @Inject constructor(
             "Anthropic Claude" -> claudeProvider.get()
             "OpenAI" -> openAIProvider.get()
             "Google Gemini" -> geminiProvider.get()
+            "JARVIS Cloud" -> jarvisCloudProvider.get()
             "Mistral AI" -> mistralProvider.get()
             "Groq" -> groqProvider.get()
             "Ollama" -> ollamaProvider.get()

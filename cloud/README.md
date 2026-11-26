@@ -31,14 +31,18 @@ Configure secrets only through the provider secret manager.
 - `POST /api/auth/sign-up/email`, `POST /api/auth/sign-in/email`, `POST /api/auth/sign-out`, and `GET /api/auth/get-session` are handled by Better Auth when configured.
 - Password minimum is 12 characters; sessions expire after 7 days and refresh daily.
 - CORS is exact-origin allowlisted and credentialed; D1-backed rate limiting uses `CF-Connecting-IP` for client identity.
-- Before public signup: configure a real email delivery provider, require email verification, add Android secure cookie/session handling, and run D1-backed end-to-end tests.
-- Team endpoints remain disabled until every query is scoped to the authenticated user/team and role checks are tested.
+- Android now stores Better Auth session cookies using the app Keystore-backed credential store. Public signup remains unavailable until a real email delivery provider and mandatory email verification are configured; authenticated D1 end-to-end tests remain pending.
+- Team list/create routes are implemented with user-scoped membership queries; invitations and team role administration are still pending.
+
+## Android client configuration
+- Set the non-secret deployment URL at build time with `-PJARVIS_CLOUD_BASE_URL=https://your-worker.example`.
+- The Android app stores Better Auth session cookies encrypted with Android Keystore. Passwords are sent only to the configured HTTPS auth endpoint and are not persisted.
 
 ## JARVIS model gateway contract
 - `POST /v1/chat` requires a valid Better Auth session (session cookie is checked server-side).
-- Request body: `{ "messages": [{ "role": "user" | "assistant", "content": "..." }] }`.
-- The server supplies the system instruction; clients cannot override it.
-- Requests are limited to 32 messages and 12,000 characters per message.
+- Request body: `{ "application_context": "...", "max_tokens": 1200, "messages": [{ "role": "user" | "assistant", "content": "..." }] }`.
+- The server always prepends its own safety policy. The optional app context is length-limited and cannot grant permissions or authorize actions.
+- Requests are limited to 32 messages, 12,000 characters per message, 48,000 total message characters, 24,000 context characters, and 4,096 output tokens.
 - Inference uses the optional Cloudflare Workers AI binding `AI`; model selection is `JARVIS_MODEL`, defaulting to `@cf/meta/llama-3.1-8b-instruct`.
 - If the binding is absent, the route returns `503 model_not_configured`. No fake response or vendor fallback is used.
 - This is an open-weight hosted inference adapter for the JARVIS agent runtime, not a claim that JARVIS has trained its own foundation model. Model availability, account eligibility, and quotas must be confirmed before deployment.

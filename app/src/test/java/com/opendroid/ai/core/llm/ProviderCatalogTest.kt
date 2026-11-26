@@ -13,12 +13,20 @@ class ProviderCatalogTest {
 
     @Test
     fun `catalog has one default for every stable provider`() {
-        assertEquals(17, ProviderCatalog.providers.size)
+        assertEquals(18, ProviderCatalog.providers.size)
         ProviderCatalog.providers.forEach { provider ->
             assertTrue(provider.displayName, ProviderCatalog.defaultModel(provider.displayName).isNotBlank())
         }
     }
 
+
+    @Test
+    fun `new installs default to first-party JARVIS Cloud without vendor credentials`() {
+        assertEquals("JARVIS Cloud", LLMConfig().activeProvider)
+        assertEquals("jarvis-cloud", LLMConfig().activeModel)
+        assertTrue(!ProviderCatalog.requiresApiKey("JARVIS Cloud"))
+        assertTrue(!ProviderCatalog.isOnDevice("JARVIS Cloud"))
+    }
 
     @Test
     fun `local llama provider has no API key requirement and is classified on device`() {

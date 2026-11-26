@@ -1,8 +1,8 @@
 name: JARVIS Android APK Build
 
+# APK generation is manual-only. The JARVIS release APK is built only after
+# explicit user approval; source pushes must never create intermediate APKs.
 on:
-  push:
-    branches: ["**"]
   workflow_dispatch:
 
 permissions:
