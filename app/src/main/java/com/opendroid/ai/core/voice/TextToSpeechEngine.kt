@@ -54,13 +54,18 @@ class TextToSpeechEngine(
     // speak() waits for this so it cannot delete a clip that is about to play.
     private val staleClipCleanup = scope.launch { deleteCachedClips() }
 
+    /** Called on the main thread when real audio for an utterance starts. */
+    var onStartListener: ((utteranceId: String) -> Unit)? = null
+
     /** Called on the main thread with the id speak() returned, when that utterance ends. */
     var onCompletionListener: ((utteranceId: String) -> Unit)? = null
 
     init {
         tts = TextToSpeech(context, this)
         tts?.setOnUtteranceProgressListener(object : android.speech.tts.UtteranceProgressListener() {
-            override fun onStart(utteranceId: String?) {}
+            override fun onStart(utteranceId: String?) {
+                mainHandler.post { onStartListener?.invoke(utteranceId.orEmpty()) }
+            }
             override fun onDone(utteranceId: String?) {
                 if (utteranceId?.contains(CHUNK_MARK) == true) return
                 mainHandler.post {
@@ -298,6 +303,7 @@ class TextToSpeechEngine(
                             true
                         }
                         player.start()
+                        mainHandler.post { onStartListener?.invoke(utteranceId) }
                     } catch (e: Exception) {
                         releasePlayerLocked()
                         throw e

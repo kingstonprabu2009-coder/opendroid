@@ -8,6 +8,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -309,13 +310,23 @@ fun JarvisHomeScreen(
                         agentState is AgentState.Thinking ||
                         agentState is AgentState.Speaking || speaking
                     val transition = rememberInfiniteTransition(label = "jarvisOrb")
-                    // Calm, state-driven motion: no rotating orbit or random colour cycling.
-                    // The orb breathes while active and gives a very small vibration only while speaking.
+                    // Clearly visible breathing in every mode; stronger/faster while active.
                     val pulse by transition.animateFloat(
                         initialValue = 1f,
-                        targetValue = if (active) 1.045f else 1.012f,
+                        targetValue = when {
+                            speaking -> 1.075f
+                            active -> 1.06f
+                            else -> 1.025f
+                        },
                         animationSpec = infiniteRepeatable(
-                            animation = tween(if (speaking) 520 else 1250),
+                            animation = tween(
+                                durationMillis = when {
+                                    speaking -> 420
+                                    active -> 760
+                                    else -> 1800
+                                },
+                                easing = LinearEasing
+                            ),
                             repeatMode = RepeatMode.Reverse
                         ),
                         label = "orbPulse"
@@ -329,21 +340,30 @@ fun JarvisHomeScreen(
                         ),
                         label = "orbVoiceMotion"
                     )
-                    val glowColor = when {
+                    val glowColorTarget = when {
                         speaking -> AccentCyan
                         agentState is AgentState.Listening -> AccentRed
                         agentState is AgentState.Thinking -> AccentPurple
                         agentState is AgentState.ExecutingPlan -> Color(0xFF35D07F)
                         else -> Color(0xFF22D3FF)
                     }
+                    val glowColor by animateColorAsState(
+                        targetValue = glowColorTarget,
+                        animationSpec = tween(320),
+                        label = "orbStateColor"
+                    )
+                    val heard by VoiceSubtitles.heard.collectAsState()
                     val reply by VoiceSubtitles.reply.collectAsState()
                     val history by chatViewModel.conversationHistory.collectAsState()
                     val spoken = history.filter { it.text.isNotBlank() }
+                    // Show live recognition text until the saved conversation catches up.
+                    val heardNote = if (heard.isNotBlank() && spoken.none { it.text == heard }) heard else ""
                     // Do not show a reply twice once it is in the saved history.
-                    val note = if (spoken.any { it.text == reply }) "" else reply
+                    val note = if (reply.isNotBlank() && spoken.none { it.text == reply }) reply else ""
                     val historyState = rememberLazyListState()
-                    val lines = spoken.size + if (note.isNotBlank()) 1 else 0
-                    LaunchedEffect(lines, spoken.lastOrNull()?.text) {
+                    val lines = spoken.size + (if (heardNote.isNotBlank()) 1 else 0) +
+                        (if (note.isNotBlank()) 1 else 0)
+                    LaunchedEffect(lines, heardNote, note, spoken.lastOrNull()?.text) {
                         if (lines > 0) historyState.animateScrollToItem(lines - 1)
                     }
                     val orbColor = when {
@@ -403,12 +423,12 @@ fun JarvisHomeScreen(
                                 modifier = Modifier
                                     .size(252.dp)
                                     .graphicsLayer {
-                                        val scale = if (active) pulse else 1f
-                                        scaleX = scale
-                                        scaleY = scale
-                                        // Shakes while Jarvis is speaking.
-                                        translationX = if (speaking) shake * 2.2f else 0f
-                                        translationY = if (speaking) shake * 0.8f else 0f
+                                        scaleX = pulse
+                                        scaleY = pulse
+                                        // Make the speaking vibration visible rather than sub-pixel.
+                                        translationX = if (speaking) shake * 6.dp.toPx() else 0f
+                                        translationY = if (speaking) shake * 2.5.dp.toPx() else 0f
+                                        rotationZ = if (speaking) shake * 1.6f else 0f
                                     }
                                     .clip(CircleShape),
                                 contentAlignment = Alignment.Center
@@ -458,6 +478,17 @@ fun JarvisHomeScreen(
                                     fontSize = 15.sp,
                                     modifier = Modifier.fillMaxWidth()
                                 )
+                            }
+                            // Live speech-to-text subtitle; disappears when saved history catches up.
+                            if (heardNote.isNotBlank()) {
+                                item(key = "live-heard-subtitle") {
+                                    Text(
+                                        "You: $heardNote",
+                                        color = AccentRed,
+                                        fontSize = 15.sp,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
                             }
                             // Short notes that are not saved, e.g. "Sollunga sir".
                             if (note.isNotBlank()) {

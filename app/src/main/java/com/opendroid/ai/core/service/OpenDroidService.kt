@@ -165,11 +165,16 @@ class OpenDroidService : Service() {
         // must stop with it.
         agentLoop.onStopSpeakingCallback = {
             approvalListenGate.disarm()
+            VoiceSubtitles.liveSpeaking.value = false
             textToSpeechEngine.stop()
         }
 
         // Set TTS completion listener to transition back to Idle
+        textToSpeechEngine.onStartListener = {
+            VoiceSubtitles.liveSpeaking.value = true
+        }
         textToSpeechEngine.onCompletionListener = { utteranceId ->
+            VoiceSubtitles.liveSpeaking.value = false
             // Only Speaking resets to Idle - speech that happens to play while a
             // plan sits in PlanProposed must not knock the approval gate over.
             bargeJob?.cancel()
@@ -256,6 +261,7 @@ class OpenDroidService : Service() {
     private fun stopCurrentSpeech() {
         bargeJob?.cancel()
         approvalListenGate.disarm()
+        VoiceSubtitles.liveSpeaking.value = false
         textToSpeechEngine.stop()
         if (agentLoop.agentState.value is AgentState.Speaking) {
             agentLoop.setAgentState(AgentState.Idle)
