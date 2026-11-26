@@ -96,6 +96,10 @@ fun ChatScreen(
     val runningSessionId by viewModel.runningSessionId.collectAsState()
     val sessions by viewModel.sessions.collectAsState()
     val llmConfig by viewModel.llmConfig.collectAsState()
+    val chatTeams by viewModel.teams.collectAsState()
+    val selectedTeamId by viewModel.selectedTeamId.collectAsState()
+    val teamLoadStatus by viewModel.teamLoadStatus.collectAsState()
+    val selectedTeamName = chatTeams.firstOrNull { it.id == selectedTeamId }?.name
     val currentSessionId = sessions.firstOrNull { it.isCurrent }?.id
     val runningElsewhere = runningSessionId != null && runningSessionId != currentSessionId
 
@@ -105,6 +109,7 @@ fun ChatScreen(
     var transcriptionText by remember { mutableStateOf("") }
     var voiceError by remember { mutableStateOf<String?>(null) }
     var showChatMenu by remember { mutableStateOf(false) }
+    var showTeamMenu by remember { mutableStateOf(false) }
     var sessionPendingDelete by remember { mutableStateOf<ChatSession?>(null) }
     var sessionPendingRename by remember { mutableStateOf<ChatSession?>(null) }
     var renameText by remember { mutableStateOf("") }
@@ -234,6 +239,44 @@ fun ChatScreen(
                             
                         
                     
+                    Box {
+                        TextButton(onClick = {
+                            viewModel.refreshChatTeams()
+                            showTeamMenu = true
+                        }) {
+                            Text(
+                                text = selectedTeamName ?: "Personal",
+                                color = if (selectedTeamId == null) TextSecondary else AccentCyan,
+                                fontSize = 11.sp,
+                                maxLines = 1
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showTeamMenu,
+                            onDismissRequest = { showTeamMenu = false },
+                            modifier = Modifier.background(DarkSurface)
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Personal chat", color = if (selectedTeamId == null) TextPrimary else TextSecondary) },
+                                leadingIcon = if (selectedTeamId == null) ({ Icon(Icons.Default.Check, null, tint = AccentCyan) }) else null,
+                                onClick = { viewModel.selectChatTeam(null); showTeamMenu = false }
+                            )
+                            chatTeams.forEach { team ->
+                                DropdownMenuItem(
+                                    text = { Text(team.name, color = if (selectedTeamId == team.id) TextPrimary else TextSecondary, maxLines = 1) },
+                                    leadingIcon = if (selectedTeamId == team.id) ({ Icon(Icons.Default.Check, null, tint = AccentCyan) }) else null,
+                                    onClick = { viewModel.selectChatTeam(team.id); showTeamMenu = false }
+                                )
+                            }
+                            if (chatTeams.isEmpty()) {
+                                DropdownMenuItem(
+                                    text = { Text(teamLoadStatus.ifBlank { "No teams available" }, color = TextSecondary, fontSize = 12.sp) },
+                                    onClick = { showTeamMenu = false },
+                                    enabled = false
+                                )
+                            }
+                        }
+                    }
                     IconButton(onClick = { viewModel.newChat() }) {
                         Icon(
                             imageVector = Icons.Default.Add,

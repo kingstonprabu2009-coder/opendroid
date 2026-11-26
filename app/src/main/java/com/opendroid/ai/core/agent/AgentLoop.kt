@@ -349,8 +349,8 @@ interface ChatAgent {
     /** Session of the plan waiting in [AgentState.PlanProposed], or null when none is. */
     val proposedPlanSessionId: StateFlow<String?>
 
-    fun processQuery(query: String, context: Context, explicitSessionId: String? = null)
-    fun retryRequest(requestId: String, sessionId: String, context: Context)
+    fun processQuery(query: String, context: Context, explicitSessionId: String? = null, teamId: String? = null)
+    fun retryRequest(requestId: String, sessionId: String, context: Context, teamId: String? = null)
 
     /** Carries on the plan a mid-plan error card paused. See [ChatErrorUiState.resumePlanId]. */
     fun resumePlan(planId: String, sessionId: String, context: Context)
@@ -558,15 +558,16 @@ class AgentLoop @Inject constructor(
      * pre-multi-session behavior: a null session is always assumed to answer whatever
      * prompt is currently pending, and otherwise falls back to resolving "current".
      */
-    override fun processQuery(query: String, context: Context, explicitSessionId: String?) =
-        submitQuery(query, context, explicitSessionId, tappedContact = null)
+    override fun processQuery(query: String, context: Context, explicitSessionId: String?, teamId: String?) =
+        submitQuery(query, context, explicitSessionId, tappedContact = null, teamId = teamId)
 
     /** [processQuery], carrying [tappedContact] when the reply is a tap on a picker card. */
     private fun submitQuery(
         query: String,
         context: Context,
         explicitSessionId: String?,
-        tappedContact: Map<String, String>?
+        tappedContact: Map<String, String>?,
+        teamId: String? = null
     ) {
         // processQuery is also the delivery path for a reply to a pending
         // awaitUserResponse() prompt (see below). That's ONLY true when this message comes
@@ -642,7 +643,7 @@ class AgentLoop @Inject constructor(
                     modelBadge = null,
                     imageBase64 = screenshotBase64
                 )
-                memoryManager.storeMessage(userMsg, sessionId)
+                if (teamId == null) memoryManager.storeMessage(userMsg, sessionId)
                 conversationRepository.insertMessage(sessionId, userMsg)
 
                 if (isAnsweringPendingQuestion) {
@@ -660,7 +661,7 @@ class AgentLoop @Inject constructor(
 
                 // Serialize query handling so contextual follow-up state cannot race.
                 queryMutex.withLock {
-                    processQueryLocked(userMsg, query, context, sessionId)
+                    processQueryLocked(userMsg, query, context, sessionId, teamId)
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -685,13 +686,13 @@ class AgentLoop @Inject constructor(
      * last message: the new plan would re-run steps that already happened, such as a
      * sent SMS.
      */
-    override fun retryRequest(requestId: String, sessionId: String, context: Context) {
+    override fun retryRequest(requestId: String, sessionId: String, context: Context, teamId: String?) {
         launchRetry(sessionId) {
             val userMsg = conversationRepository.getMessages(sessionId).first().lastOrNull {
                 it.id == requestId && it.sender == ChatMessage.Sender.USER
             }
             if (userMsg != null) {
-                processQueryLocked(userMsg, userMsg.text, context, sessionId)
+                processQueryLocked(userMsg, userMsg.text, context, sessionId, teamId)
             } else {
                 resumePausedPlanLocked(requestId, context, sessionId)
             }
@@ -735,13 +736,18 @@ class AgentLoop @Inject constructor(
         currentJob = job
     }
 
-    private suspend fun processQueryLocked(userMsg: ChatMessage, query: String, context: Context, sessionId: String) {
+    private suspend fun processQueryLocked(userMsg: ChatMessage, query: String, context: Context, sessionId: String, teamId: String? = null) {
                 // Each new task starts with a clean slate: a stale error card from an
                 // earlier request must not outlive the request it described. A plan that
                 // card had paused can no longer be resumed, so it fails.
                 _chatError.value?.resumePlanId?.let { planManager.failPausedPlan(it) }
                 _chatError.value = null
                 _agentState.value = AgentState.Thinking
+
+                if (teamId != null) {
+                    executeSimpleQuery(userMsg, sessionId, teamId)
+                    return
+                }
 
                 // 0. Check if this is a complex, multi-step query
                 //    If so, skip ALL shortcuts and let the LLM planner handle it properly
@@ -815,9 +821,9 @@ class AgentLoop @Inject constructor(
                 // 2. Intent Classification
                 val requiresAction = intentClassifier.requiresAction(query)
                 if (requiresAction) {
-                    generatePlan(userMsg, context, sessionId)
+                    generatePlan(userMsg, context, sessionId, teamId)
                 } else {
-                    executeSimpleQuery(userMsg, sessionId)
+                    executeSimpleQuery(userMsg, sessionId, teamId)
                 }
     }
 
@@ -891,13 +897,19 @@ class AgentLoop @Inject constructor(
         _agentState.value = AgentState.Error(error.title())
     }
 
-    private suspend fun executeSimpleQuery(userMsg: ChatMessage, sessionId: String) {
+    private suspend fun executeSimpleQuery(userMsg: ChatMessage, sessionId: String, teamId: String? = null) {
         val runId = UUID.randomUUID().toString()
         val requestId = userMsg.id
         try {
             val provider = llmProviderFactory.getActiveProvider()
-            val relevantContext = memoryManager.getRelevantContext(userMsg.text)
+            // Team chat must not carry personal memory into a shared workspace.
+            val relevantContext = if (teamId == null) memoryManager.getRelevantContext(userMsg.text) else ""
             val autoModeLabel = settingsRepository.llmConfig.first().approvalSettings().mode.name
+            val deviceCapabilities = if (teamId == null) {
+                "You can control this Android device: open apps, set alarms, toggle WiFi/Bluetooth/flashlight, send messages, make calls, and more. If someone asks you to do something, just do it or let them know you can help."
+            } else {
+                "You are in a shared team chat. This mode is chat-only: do not claim to control or change this device, and do not use private personal memories."
+            }
 
             val systemPrompt = """
                                 You are Jarvis, a calm, polite and loyal personal AI assistant, like the one in Iron Man.
@@ -908,7 +920,7 @@ class AgentLoop @Inject constructor(
                 
                 
                 
-                You can control this Android device: open apps, set alarms, toggle WiFi/Bluetooth/flashlight, send messages, make calls, and more. If someone asks you to do something, just do it or let them know you can help.
+                $deviceCapabilities
                 
                 Never dump raw error messages or technical details. If something goes wrong, say it simply and suggest what to do next.
 
@@ -918,7 +930,8 @@ class AgentLoop @Inject constructor(
                 $relevantContext
             """.trimIndent()
 
-            val lastMsgs = conversationRepository.getLastMessages(sessionId, 10).map { msg ->
+            val sourceMessages = if (teamId != null) listOf(userMsg) else conversationRepository.getLastMessages(sessionId, 10)
+            val lastMsgs = sourceMessages.map { msg ->
                 val withImage = if (msg.id == userMsg.id) {
                     msg.copy(imageBase64 = userMsg.imageBase64)
                 } else {
@@ -950,7 +963,8 @@ class AgentLoop @Inject constructor(
                         messages = lastMsgs,
                         temperature = 0.5f,
                         maxTokens = 500,
-                        responseFormat = ResponseFormat.TEXT
+                        responseFormat = ResponseFormat.TEXT,
+                        teamId = teamId
                     )
                 ).collect { chunk ->
                     if (chunk.isEmpty()) return@collect
@@ -1008,7 +1022,7 @@ class AgentLoop @Inject constructor(
 
             val finalReplyMsg = replyMsg.copy(text = currentReplyText)
             conversationRepository.insertMessage(sessionId, finalReplyMsg)
-            memoryManager.storeMessage(finalReplyMsg, sessionId)
+            if (teamId == null) memoryManager.storeMessage(finalReplyMsg, sessionId)
             _chatError.value = null
             _agentState.value = AgentState.Speaking(finalReplyMsg.text)
             onSpeakCallback?.invoke(finalReplyMsg.text)
@@ -1028,10 +1042,11 @@ class AgentLoop @Inject constructor(
         }
     }
 
-    private suspend fun generatePlan(userMsg: ChatMessage, context: Context, sessionId: String) {
+    private suspend fun generatePlan(userMsg: ChatMessage, context: Context, sessionId: String, teamId: String? = null) {
         try {
             val provider = llmProviderFactory.getActiveProvider()
-            val relevantContext = memoryManager.getRelevantContext(userMsg.text)
+            // Do not leak private personal memory into a shared team request.
+            val relevantContext = if (teamId == null) memoryManager.getRelevantContext(userMsg.text) else ""
             val isOnDevice = ProviderCatalog.isOnDevice(provider.name)
 
             val config = settingsRepository.llmConfig.first()
@@ -1052,7 +1067,7 @@ class AgentLoop @Inject constructor(
                                 isOnDevice = isOnDevice,
                                 temperature = 0.2f,
                                 maxTokens = 1500
-                            )
+                            ).copy(teamId = teamId)
                         )
                     }
 
@@ -1063,7 +1078,8 @@ class AgentLoop @Inject constructor(
                                 messages = listOf(userMsg),
                                 temperature = 0.2f,
                                 maxTokens = 1000,
-                                responseFormat = ResponseFormat.TEXT
+                                responseFormat = ResponseFormat.TEXT,
+                                teamId = teamId
                             )
                         )
                     }
@@ -1095,7 +1111,8 @@ class AgentLoop @Inject constructor(
                             ),
                             temperature = 0.1f,
                             maxTokens = 1500,
-                            responseFormat = ResponseFormat.JSON
+                            responseFormat = ResponseFormat.JSON,
+                            teamId = teamId
                         )
                     )
                     reportLocalPlanningLatency(mergeResponse)
@@ -1110,7 +1127,7 @@ class AgentLoop @Inject constructor(
                         isOnDevice = isOnDevice,
                         temperature = 0.1f,
                         maxTokens = maxTokensForPlan
-                    )
+                    ).copy(teamId = teamId)
                 )
                 reportLocalPlanningLatency(response)
                 parsePlanFromLlmResponse(response.content, userMsg.text)

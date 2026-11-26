@@ -257,6 +257,28 @@ class OpenDroidDatabaseMigrationTest {
     }
 
     @Test
+    fun `migration 11 to 12 adds a nullable team scope without changing existing chats`() {
+        helper.createDatabase(databasePath, 11).use { db ->
+            db.execSQL(
+                "INSERT INTO chat_sessions (`id`, `title`, `createdAt`, `updatedAt`, `isCurrent`) VALUES ('personal-1', 'Personal', 10, 10, 1)"
+            )
+            OpenDroidDatabase.MIGRATION_11_12.migrate(db)
+            db.query("SELECT `id`, `teamId` FROM chat_sessions WHERE `id` = 'personal-1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("personal-1", cursor.getString(0))
+                assertTrue(cursor.isNull(1))
+            }
+            db.execSQL(
+                "INSERT INTO chat_sessions (`id`, `title`, `createdAt`, `updatedAt`, `isCurrent`, `teamId`) VALUES ('team-1', 'Team', 20, 20, 0, 'team-id-1')"
+            )
+            db.query("SELECT `teamId` FROM chat_sessions WHERE `id` = 'team-1'").use { cursor ->
+                assertTrue(cursor.moveToFirst())
+                assertEquals("team-id-1", cursor.getString(0))
+            }
+        }
+    }
+
+    @Test
     fun `the app's database builder upgrades a version 1 database without losing data`() {
         val context = ApplicationProvider.getApplicationContext<Context>()
         createVersion1Database(APP_DATABASE)

@@ -9,6 +9,8 @@ import androidx.test.core.app.ApplicationProvider
 import com.opendroid.ai.core.agent.AgentState
 import com.opendroid.ai.core.agent.ChatAgent
 import com.opendroid.ai.core.agent.ChatErrorUiState
+import com.opendroid.ai.core.cloud.JarvisCloudSession
+import okhttp3.OkHttpClient
 import com.opendroid.ai.core.llm.error.LLMError
 import com.opendroid.ai.core.security.CredentialStoreResult
 import com.opendroid.ai.core.security.ProviderCredentialId
@@ -70,7 +72,10 @@ class ChatViewModelTaskAttributionTest {
             chatA = repository.createSession("A")
             chatB = repository.createSession("B")
         }
-        viewModel = ChatViewModel(agent, repository, newSettingsRepository())
+        viewModel = ChatViewModel(
+            agent, repository, newSettingsRepository(),
+            JarvisCloudSession(EmptyCredentialStore(), OkHttpClient())
+        )
         // ChatScreen keeps these collected; WhileSubscribed flows stand still without it.
         collectors.launch { viewModel.sessions.collect {} }
         collectors.launch { viewModel.visibleAgentState.collect {} }
@@ -82,6 +87,18 @@ class ChatViewModelTaskAttributionTest {
     fun tearDown() {
         collectors.cancel()
         database.close()
+    }
+
+    @Test
+    fun `team workspace scope is stored per session and restored when switching chats`() = runBlocking {
+        val teamSessionId = repository.createSession("Team chat", teamId = "team-a")
+        val personalSessionId = repository.createSession("Personal chat")
+
+        assertEquals("team-a", repository.getSession(teamSessionId)?.teamId)
+        assertEquals(null, repository.getSession(personalSessionId)?.teamId)
+
+        repository.switchToSession(teamSessionId)
+        assertEquals("team-a", repository.getSession(repository.ensureCurrentSessionId())?.teamId)
     }
 
     @Test
@@ -309,7 +326,7 @@ override var speakReplies: Boolean = false
             agentState.value = AgentState.PlanProposed(plan())
         }
 
-        override fun processQuery(query: String, context: Context, explicitSessionId: String?) {
+        override fun processQuery(query: String, context: Context, explicitSessionId: String?, teamId: String?) {
             lastExplicitSessionId = explicitSessionId
             activeTaskSessionId.value = explicitSessionId
         }
@@ -329,7 +346,7 @@ override var speakReplies: Boolean = false
         val resumed = mutableListOf<Pair<String, String>>()
         var dismissCalls = 0
 
-        override fun retryRequest(requestId: String, sessionId: String, context: Context) {
+        override fun retryRequest(requestId: String, sessionId: String, context: Context, teamId: String?) {
             retried += requestId to sessionId
         }
 

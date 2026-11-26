@@ -48,6 +48,7 @@ class JarvisCloudProvider @Inject constructor(
             mapOf(
                 "application_context" to request.systemPrompt.take(24000),
                 "max_tokens" to request.maxTokens.coerceIn(1, 4096),
+                "team_id" to request.teamId,
                 "messages" to messages
             )
         )

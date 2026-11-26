@@ -19,6 +19,9 @@ interface ChatSessionDao {
     @Query("SELECT * FROM chat_sessions WHERE isCurrent = 1 LIMIT 1")
     suspend fun getCurrentSessionOnce(): ChatSessionEntity?
 
+    @Query("SELECT * FROM chat_sessions WHERE id = :sessionId LIMIT 1")
+    suspend fun getSession(sessionId: String): ChatSessionEntity?
+
     /** Most recently active session id, used as a fallback when there is no current session. */
     @Query("SELECT id FROM chat_sessions ORDER BY updatedAt DESC LIMIT 1")
     suspend fun getAnySessionId(): String?

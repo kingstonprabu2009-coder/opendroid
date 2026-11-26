@@ -87,7 +87,10 @@ data class LLMRequest(
     @Transient
     val memoryContext: String = "",
     @Transient
-    val providerConfig: ProviderRequestConfig? = null
+    val providerConfig: ProviderRequestConfig? = null,
+    /** Server-authorized team scope for JARVIS Cloud chat; never inferred from prompt text. */
+    @Transient
+    val teamId: String? = null
 )
 
 enum class ResponseFormat {

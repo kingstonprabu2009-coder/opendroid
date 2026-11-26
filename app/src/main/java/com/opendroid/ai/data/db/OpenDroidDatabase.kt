@@ -69,7 +69,7 @@ import androidx.room.TypeConverters
         SocialAutomationRuleEntity::class,
         SocialAuditLogEntity::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -274,6 +274,12 @@ abstract class OpenDroidDatabase : RoomDatabase() {
         // metric the platform doesn't report is stored as unknown instead of 0. SQLite can't
         // drop NOT NULL in place, so the snapshots table is rebuilt. Existing snapshots keep
         // their values: an old 0 can't be told apart from a real one.
+        val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE chat_sessions ADD COLUMN teamId TEXT")
+            }
+        }
+
         val MIGRATION_10_11 = object : Migration(10, 11) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE social_interactions ADD COLUMN replyTargetId TEXT")

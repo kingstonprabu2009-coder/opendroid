@@ -18,5 +18,6 @@ data class ChatSessionEntity(
     val title: String,
     val createdAt: Long,
     val updatedAt: Long,
-    val isCurrent: Boolean = false
+    val isCurrent: Boolean = false,
+    val teamId: String? = null
 )

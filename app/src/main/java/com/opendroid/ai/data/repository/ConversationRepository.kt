@@ -26,7 +26,8 @@ data class ChatSession(
     val title: String,
     val createdAt: Long,
     val updatedAt: Long,
-    val isCurrent: Boolean
+    val isCurrent: Boolean,
+    val teamId: String? = null
 )
 
 @Singleton
@@ -129,12 +130,12 @@ class ConversationRepository @Inject constructor(
     }
 
     /** Creates a new, empty session, makes it current, and returns its id. */
-    suspend fun createSession(title: String = "New Chat"): String {
+    suspend fun createSession(title: String = "New Chat", teamId: String? = null): String {
         val id = UUID.randomUUID().toString()
         val now = System.currentTimeMillis()
         database.withTransaction {
             chatSessionDao.insert(
-                ChatSessionEntity(id = id, title = title, createdAt = now, updatedAt = now, isCurrent = false)
+                ChatSessionEntity(id = id, title = title, createdAt = now, updatedAt = now, isCurrent = false, teamId = teamId)
             )
             chatSessionDao.markCurrent(id)
         }
@@ -145,6 +146,9 @@ class ConversationRepository @Inject constructor(
     suspend fun switchToSession(sessionId: String) {
         chatSessionDao.markCurrent(sessionId)
     }
+
+    suspend fun getSession(sessionId: String): ChatSession? =
+        chatSessionDao.getSession(sessionId)?.toChatSession()
 
     /** Renames a session and bumps its updatedAt so it sorts as recently active. */
     suspend fun renameSession(sessionId: String, title: String) {
@@ -215,6 +219,7 @@ class ConversationRepository @Inject constructor(
         title = title,
         createdAt = createdAt,
         updatedAt = updatedAt,
-        isCurrent = isCurrent
+        isCurrent = isCurrent,
+        teamId = teamId
     )
 }
