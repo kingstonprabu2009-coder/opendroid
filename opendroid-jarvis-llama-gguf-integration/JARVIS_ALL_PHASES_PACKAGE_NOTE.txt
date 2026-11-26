@@ -1,0 +1,16 @@
+JARVIS / OPENDROID - INTEGRATED SOURCE PACKAGE
+
+This package keeps the existing OpenDroid project and its integrated modules together in one Android Studio/Gradle project:
+- Local Qwen 2.5 7B GGUF + llama.cpp ARM64 native integration
+- Tamil/English voice input and speech output modules
+- Planning, action dispatch, approval, memory, history, and routines
+- Android Accessibility automation modules (permission-gated)
+- WhatsApp, Telegram, SMS, email compose/read, browser/media, and social modules
+- Settings, model download, private storage, and WorkManager support
+
+Source correction in this package:
+- Added the missing imports for LocalModelFailureException and LocalInferenceFailureException in LlamaCppProvider.kt so the local provider references resolve to the error types defined in the project.
+
+Build/deploy is the next step on the user's Android/Termux or build environment. This is a source ZIP, not an APK. The Qwen GGUF model remains a separate in-app download and is not embedded in this ZIP.
+
+Important: integrations that require external provider credentials, Android permissions, installed target apps, or platform-side API approval still require those setup steps. This package does not claim those external services are already authenticated or deployed.
