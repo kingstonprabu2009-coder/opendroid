@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Forum
+import androidx.compose.material.icons.filled.MicOff
+import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
@@ -546,6 +548,55 @@ fun ChatScreen(
                             )
 
                             Spacer(modifier = Modifier.width(12.dp))
+                        }
+
+                        if (textOnly) {
+                            IconButton(
+                                onClick = {
+                                    if (isListening) {
+                                        speechRecognizer.cancel()
+                                        isListening = false
+                                        mergeDictatedText(transcriptionText)
+                                        transcriptionText = ""
+                                    } else {
+                                        val granted = ContextCompat.checkSelfPermission(
+                                            context, Manifest.permission.RECORD_AUDIO
+                                        ) == PackageManager.PERMISSION_GRANTED
+                                        if (granted) {
+                                            isListening = true
+                                            voiceError = null
+                                            transcriptionText = ""
+                                            speechRecognizer.startListening(
+                                                onResult = { text ->
+                                                    isListening = false
+                                                    mergeDictatedText(text)
+                                                    transcriptionText = ""
+                                                },
+                                                onPartialResult = { transcriptionText = it },
+                                                onError = { err ->
+                                                    isListening = false
+                                                    mergeDictatedText(transcriptionText)
+                                                    transcriptionText = ""
+                                                    voiceError = err
+                                                }
+                                            )
+                                        } else {
+                                            recordAudioPermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                                        }
+                                    }
+                                },
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(CardBackground)
+                            ) {
+                                Icon(
+                                    imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
+                                    contentDescription = if (isListening) "Stop voice input" else "Speak message",
+                                    tint = if (isListening) AccentRed else AccentCyan
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
                         }
 
                         // Text Input Field / Voice Waveform Area

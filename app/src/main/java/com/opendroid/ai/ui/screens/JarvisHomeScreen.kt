@@ -246,9 +246,7 @@ fun JarvisHomeScreen(
                 ) {
                     listOf(
                         JarvisMode.LIVE_VOICE to "Live",
-                        JarvisMode.CHAT to "Chat",
-                        JarvisMode.TEACH to "Teach",
-                        JarvisMode.MEMORY to "Growth"
+                        JarvisMode.CHAT to "Chat"
                     ).forEach { (m, label) ->
                         androidx.compose.material3.Tab(
                             selected = mode == m,
