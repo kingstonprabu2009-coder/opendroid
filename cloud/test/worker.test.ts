@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import worker, { resolvePlatformRole } from "../src/index";
+import worker, { hashInvitationToken, isValidInviteEmail, resolvePlatformRole } from "../src/index";
 const env = { DB: {} as D1Database, JARVIS_ENV: "test", ALLOWED_ORIGIN: "http://localhost:8080" };
 describe("JARVIS single-owner platform roles", () => {
   it("grants Owner only to the configured verified email", () => {
@@ -32,6 +32,32 @@ describe("JARVIS single-owner platform roles", () => {
       "",
       false
     )).toMatchObject({ role: "user", isOwner: false, isAdmin: false });
+  });
+});
+
+describe("JARVIS team invitation security", () => {
+  it("validates invite email format and length", () => {
+    expect(isValidInviteEmail("person@example.com")).toBe(true);
+    expect(isValidInviteEmail("not-an-email")).toBe(false);
+    expect(isValidInviteEmail("")).toBe(false);
+    expect(isValidInviteEmail("x".repeat(250) + "@example.com")).toBe(false);
+  });
+
+  it("stores a deterministic SHA-256 digest rather than the raw invitation token", async () => {
+    const digest = await hashInvitationToken("a".repeat(64));
+    expect(digest).toHaveLength(64);
+    expect(digest).not.toBe("a".repeat(64));
+    await expect(hashInvitationToken("a".repeat(64))).resolves.toBe(digest);
+  });
+
+  it("rejects unauthenticated invitation acceptance", async () => {
+    const response = await worker.fetch(new Request("https://jarvis.test/v1/team-invitations/accept", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "a".repeat(64) })
+    }), env);
+    expect(response.status).toBe(503);
+    await expect(response.json()).resolves.toMatchObject({ error: "auth_not_configured" });
   });
 });
 

@@ -40,6 +40,20 @@ function normalizeEmail(value: string): string {
   return value.trim().toLowerCase();
 }
 
+export function isValidInviteEmail(value: string): boolean {
+  return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+export async function hashInvitationToken(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function createInvitationToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  return Array.from(bytes, byte => byte.toString(16).padStart(2, "0")).join("");
+}
+
 export function resolvePlatformRole(
   user: { email: string; emailVerified?: boolean },
   configuredOwnerEmail: string,
@@ -98,7 +112,7 @@ export default {
       return new Response(null, { status: 204, headers: {
         "access-control-allow-origin": corsOrigin,
         "access-control-allow-credentials": "true",
-        "access-control-allow-methods": "GET, POST, OPTIONS",
+        "access-control-allow-methods": "GET, POST, DELETE, OPTIONS",
         "access-control-allow-headers": "authorization, content-type",
         "access-control-max-age": "600", vary: "Origin"
       }});
@@ -244,6 +258,143 @@ export default {
         } catch {
           return json({ error: "model_unavailable", message: "JARVIS model runtime could not complete this request." }, 502, corsOrigin);
         }
+      }
+
+      const teamMembersPath = url.pathname.match(/^\/v1\/teams\/([^/]+)\/(members|invitations)$/);
+      if (teamMembersPath) {
+        const teamId = decodeURIComponent(teamMembersPath[1]);
+        const resource = teamMembersPath[2];
+        const teamExists = await env.DB.prepare(
+          "SELECT id FROM teams WHERE id = ? AND archived_at IS NULL"
+        ).bind(teamId).first();
+        if (!teamExists) return json({ error: "team_not_found" }, 404, corsOrigin);
+        const membership = await env.DB.prepare(
+          "SELECT 1 AS member FROM team_memberships WHERE team_id = ? AND user_id = ?"
+        ).bind(teamId, authSession.user.id).first();
+        if (!membership && !access.isAdmin && !access.isOwner) {
+          return json({ error: "team_access_denied" }, 403, corsOrigin);
+        }
+        if (resource === "members" && request.method === "GET") {
+          const result = await env.DB.prepare(
+            `SELECT u.id, u.name, u.email, m.joined_at
+             FROM team_memberships m JOIN "user" u ON u.id = m.user_id
+             WHERE m.team_id = ? ORDER BY m.joined_at ASC`
+          ).bind(teamId).all();
+          return json({ members: result.results ?? [] }, 200, corsOrigin);
+        }
+        if (resource === "invitations" && request.method === "GET") {
+          const result = await env.DB.prepare(
+            `SELECT i.id, i.invited_email, i.expires_at, i.created_at, u.email AS invited_by_email
+             FROM team_invitations i JOIN "user" u ON u.id = i.invited_by_user_id
+             WHERE i.team_id = ? AND i.accepted_at IS NULL AND i.revoked_at IS NULL AND i.expires_at > ?
+             ORDER BY i.created_at DESC`
+          ).bind(teamId, new Date().toISOString()).all();
+          return json({ invitations: result.results ?? [] }, 200, corsOrigin);
+        }
+        if (resource === "invitations" && request.method === "POST") {
+          let body: unknown;
+          try { body = await request.json(); } catch {
+            return json({ error: "invalid_json" }, 400, corsOrigin);
+          }
+          const email = typeof body === "object" && body !== null && "email" in body
+            ? normalizeEmail(String((body as { email?: unknown }).email ?? ""))
+            : "";
+          if (!isValidInviteEmail(email)) return json({ error: "invalid_invite_email" }, 400, corsOrigin);
+          if (email === normalizeEmail(authSession.user.email)) {
+            return json({ error: "cannot_invite_self" }, 400, corsOrigin);
+          }
+          const existingMember = await env.DB.prepare(
+            'SELECT m.user_id FROM team_memberships m JOIN "user" u ON u.id = m.user_id WHERE m.team_id = ? AND lower(u.email) = ?'
+          ).bind(teamId, email).first();
+          if (existingMember) return json({ error: "already_team_member" }, 409, corsOrigin);
+          const now = new Date().toISOString();
+          await env.DB.prepare(
+            "UPDATE team_invitations SET revoked_at = ? WHERE team_id = ? AND invited_email = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at <= ?"
+          ).bind(now, teamId, email, now).run();
+          const duplicate = await env.DB.prepare(
+            "SELECT id FROM team_invitations WHERE team_id = ? AND invited_email = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?"
+          ).bind(teamId, email, now).first();
+          if (duplicate) return json({ error: "invitation_already_pending" }, 409, corsOrigin);
+          const token = createInvitationToken();
+          const tokenHash = await hashInvitationToken(token);
+          const invitationId = crypto.randomUUID();
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+          await env.DB.batch([
+            env.DB.prepare(
+              "INSERT INTO team_invitations (id, team_id, invited_email, token_hash, invited_by_user_id, expires_at) VALUES (?, ?, ?, ?, ?, ?)"
+            ).bind(invitationId, teamId, email, tokenHash, authSession.user.id, expiresAt),
+            env.DB.prepare(
+              "INSERT INTO audit_events (id, actor_user_id, team_id, event_type, resource_type, resource_id) VALUES (?, ?, ?, 'team.invitation.created', 'team_invitation', ?)"
+            ).bind(crypto.randomUUID(), authSession.user.id, teamId, invitationId)
+          ]);
+          // Raw token is returned only once to the signed-in inviter. Never persist or log it.
+          return json({ invitation: { id: invitationId, email, token, expiresAt } }, 201, corsOrigin);
+        }
+        return json({ error: "method_not_allowed" }, 405, corsOrigin);
+      }
+
+      const revokeInvitationPath = url.pathname.match(/^\/v1\/teams\/([^/]+)\/invitations\/([^/]+)$/);
+      if (revokeInvitationPath && request.method === "DELETE") {
+        const teamId = decodeURIComponent(revokeInvitationPath[1]);
+        const invitationId = decodeURIComponent(revokeInvitationPath[2]);
+        const invitation = await env.DB.prepare(
+          "SELECT invited_by_user_id FROM team_invitations WHERE id = ? AND team_id = ? AND accepted_at IS NULL AND revoked_at IS NULL"
+        ).bind(invitationId, teamId).first<{ invited_by_user_id: string }>();
+        if (!invitation) return json({ error: "invitation_not_found" }, 404, corsOrigin);
+        if (invitation.invited_by_user_id !== authSession.user.id && !access.isAdmin && !access.isOwner) {
+          return json({ error: "invitation_revoke_denied" }, 403, corsOrigin);
+        }
+        await env.DB.batch([
+          env.DB.prepare("UPDATE team_invitations SET revoked_at = ? WHERE id = ? AND team_id = ? AND accepted_at IS NULL")
+            .bind(new Date().toISOString(), invitationId, teamId),
+          env.DB.prepare(
+            "INSERT INTO audit_events (id, actor_user_id, team_id, event_type, resource_type, resource_id) VALUES (?, ?, ?, 'team.invitation.revoked', 'team_invitation', ?)"
+          ).bind(crypto.randomUUID(), authSession.user.id, teamId, invitationId)
+        ]);
+        return json({ ok: true }, 200, corsOrigin);
+      }
+
+      if (url.pathname === "/v1/team-invitations/accept" && request.method === "POST") {
+        if (authSession.user.emailVerified !== true) {
+          return json({ error: "verified_email_required" }, 403, corsOrigin);
+        }
+        let body: unknown;
+        try { body = await request.json(); } catch {
+          return json({ error: "invalid_json" }, 400, corsOrigin);
+        }
+        const token = typeof body === "object" && body !== null && "token" in body
+          ? String((body as { token?: unknown }).token ?? "")
+          : "";
+        if (!/^[a-f0-9]{64}$/.test(token)) return json({ error: "invalid_invitation_token" }, 400, corsOrigin);
+        const tokenHash = await hashInvitationToken(token);
+        const invitation = await env.DB.prepare(
+          "SELECT id, team_id, invited_email, expires_at FROM team_invitations WHERE token_hash = ? AND accepted_at IS NULL AND revoked_at IS NULL"
+        ).bind(tokenHash).first<{ id: string; team_id: string; invited_email: string; expires_at: string }>();
+        if (!invitation) return json({ error: "invitation_invalid_or_used" }, 404, corsOrigin);
+        if (invitation.expires_at <= new Date().toISOString()) {
+          return json({ error: "invitation_expired" }, 410, corsOrigin);
+        }
+        if (normalizeEmail(authSession.user.email) !== invitation.invited_email) {
+          return json({ error: "invitation_email_mismatch" }, 403, corsOrigin);
+        }
+        const team = await env.DB.prepare(
+          "SELECT id, name FROM teams WHERE id = ? AND archived_at IS NULL"
+        ).bind(invitation.team_id).first<{ id: string; name: string }>();
+        if (!team) return json({ error: "team_not_available" }, 404, corsOrigin);
+        const acceptedAt = new Date().toISOString();
+        const acceptance = await env.DB.batch([
+          env.DB.prepare(
+            "UPDATE team_invitations SET accepted_at = ? WHERE id = ? AND accepted_at IS NULL AND revoked_at IS NULL AND expires_at > ?"
+          ).bind(acceptedAt, invitation.id, acceptedAt),
+          env.DB.prepare(
+            "INSERT OR IGNORE INTO team_memberships (team_id, user_id, role) SELECT team_id, ?, 'member' FROM team_invitations WHERE id = ? AND accepted_at = ?"
+          ).bind(authSession.user.id, invitation.id, acceptedAt),
+          env.DB.prepare(
+            "INSERT INTO audit_events (id, actor_user_id, team_id, event_type, resource_type, resource_id) SELECT ?, ?, team_id, 'team.invitation.accepted', 'team_invitation', ? FROM team_invitations WHERE id = ? AND accepted_at = ?"
+          ).bind(crypto.randomUUID(), authSession.user.id, invitation.id, invitation.id, acceptedAt)
+        ]);
+        if (!acceptance[0]?.meta?.changes) return json({ error: "invitation_invalid_or_used" }, 409, corsOrigin);
+        return json({ ok: true, team: { id: team.id, name: team.name, role: "member" } }, 200, corsOrigin);
       }
 
       if (url.pathname === "/v1/teams" && request.method === "GET") {

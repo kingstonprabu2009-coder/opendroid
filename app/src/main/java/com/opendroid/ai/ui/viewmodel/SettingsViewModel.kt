@@ -60,6 +60,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 data class JarvisPlatformAdmin(val name: String, val email: String)
+data class JarvisTeam(val id: String, val name: String)
+data class JarvisTeamMember(val name: String, val email: String)
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
@@ -95,6 +97,20 @@ class SettingsViewModel @Inject constructor(
     val adminEmail: StateFlow<String> = _adminEmail.asStateFlow()
     private val _adminManagementStatus = MutableStateFlow("")
     val adminManagementStatus: StateFlow<String> = _adminManagementStatus.asStateFlow()
+    private val _teams = MutableStateFlow<List<JarvisTeam>>(emptyList())
+    val teams: StateFlow<List<JarvisTeam>> = _teams.asStateFlow()
+    private val _teamName = MutableStateFlow("")
+    val teamName: StateFlow<String> = _teamName.asStateFlow()
+    private val _teamInviteEmail = MutableStateFlow("")
+    val teamInviteEmail: StateFlow<String> = _teamInviteEmail.asStateFlow()
+    private val _teamJoinToken = MutableStateFlow("")
+    val teamJoinToken: StateFlow<String> = _teamJoinToken.asStateFlow()
+    private val _teamInvitationToken = MutableStateFlow("")
+    val teamInvitationToken: StateFlow<String> = _teamInvitationToken.asStateFlow()
+    private val _teamMembers = MutableStateFlow<List<JarvisTeamMember>>(emptyList())
+    val teamMembers: StateFlow<List<JarvisTeamMember>> = _teamMembers.asStateFlow()
+    private val _teamStatus = MutableStateFlow("")
+    val teamStatus: StateFlow<String> = _teamStatus.asStateFlow()
 
     private val _huggingFaceToken = MutableStateFlow("")
     val huggingFaceToken: StateFlow<String> = _huggingFaceToken
@@ -165,7 +181,10 @@ class SettingsViewModel @Inject constructor(
                     jarvisCloudSession.verifySession(BuildConfig.JARVIS_CLOUD_BASE_URL)
                 }.getOrDefault(false)
                 _jarvisAccountStatus.value = if (signedIn) "Signed in" else "Not signed in"
-                if (signedIn) refreshPlatformAccess()
+                if (signedIn) {
+                    refreshPlatformAccess()
+                    refreshTeams()
+                }
             }
         }
         viewModelScope.launch(Dispatchers.IO) {
@@ -248,6 +267,7 @@ class SettingsViewModel @Inject constructor(
                 _jarvisPassword.value = ""
                 _jarvisAccountStatus.value = "Signed in"
                 refreshPlatformAccess()
+                refreshTeams()
             }.onFailure {
                 _jarvisAccountStatus.value = it.message?.take(180) ?: "Sign-in failed"
             }
@@ -264,9 +284,100 @@ class SettingsViewModel @Inject constructor(
                 _platformRole.value = "unknown"
                 _platformAdmins.value = emptyList()
                 _adminManagementStatus.value = ""
+                _teams.value = emptyList()
+                _teamMembers.value = emptyList()
+                _teamInvitationToken.value = ""
+                _teamStatus.value = ""
             }.onFailure {
                 _jarvisAccountStatus.value = "Sign-out failed: ${it.message?.take(120) ?: "secure storage unavailable"}"
             }
+        }
+    }
+
+    private fun cloudApi(path: String, method: String = "GET", payload: Any? = null): com.google.gson.JsonObject {
+        val root = BuildConfig.JARVIS_CLOUD_BASE_URL.trimEnd('/') + "/"
+        val requestBody = payload?.let {
+            Gson().toJson(it).toRequestBody("application/json; charset=utf-8".toMediaType())
+        }
+        val request = Request.Builder().url(root + path).method(method, requestBody).build()
+        jarvisCloudSession.authenticatedClient().newCall(request).execute().use { response ->
+            val raw = response.body.string()
+            val json = runCatching { JsonParser.parseString(raw).asJsonObject }
+                .getOrElse { com.google.gson.JsonObject() }
+            if (!response.isSuccessful) {
+                val error = json.get("error")?.asString
+                throw IllegalStateException(error ?: "JARVIS Cloud request failed (HTTP ${response.code}).")
+            }
+            return json
+        }
+    }
+
+    fun updateTeamName(value: String) { _teamName.value = value }
+    fun updateTeamInviteEmail(value: String) { _teamInviteEmail.value = value }
+    fun updateTeamJoinToken(value: String) { _teamJoinToken.value = value }
+
+    fun refreshTeams() {
+        if (!jarvisCloudConfigured) return
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { cloudApi("v1/teams").getAsJsonArray("teams").map {
+                val item = it.asJsonObject
+                JarvisTeam(item.get("id").asString, item.get("name").asString)
+            } }.onSuccess { _teams.value = it }
+                .onFailure { _teamStatus.value = it.message?.take(140) ?: "Unable to load teams." }
+        }
+    }
+
+    fun createJarvisTeam() {
+        val name = _teamName.value.trim()
+        if (name.isBlank()) { _teamStatus.value = "Enter a team name."; return }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { cloudApi("v1/teams", "POST", mapOf("name" to name)) }
+                .onSuccess {
+                    _teamName.value = ""
+                    _teamStatus.value = "Team created."
+                    refreshTeams()
+                }.onFailure { _teamStatus.value = it.message?.take(140) ?: "Team creation failed." }
+        }
+    }
+
+    fun inviteToJarvisTeam(teamId: String) {
+        val email = _teamInviteEmail.value.trim()
+        if (email.isBlank()) { _teamStatus.value = "Enter the person's email address."; return }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { cloudApi("v1/teams/$teamId/invitations", "POST", mapOf("email" to email)) }
+                .onSuccess {
+                    val invitation = it.getAsJsonObject("invitation")
+                    _teamInvitationToken.value = invitation.get("token").asString
+                    _teamStatus.value = "Invite created. Share this token with the invited person."
+                    _teamInviteEmail.value = ""
+                }.onFailure { _teamStatus.value = it.message?.take(140) ?: "Invitation failed." }
+        }
+    }
+
+    fun acceptJarvisTeamInvitation() {
+        val token = _teamJoinToken.value.trim()
+        if (!Regex("^[a-f0-9]{64}$").matches(token)) {
+            _teamStatus.value = "Enter the 64-character invitation token."
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { cloudApi("v1/team-invitations/accept", "POST", mapOf("token" to token)) }
+                .onSuccess {
+                    val team = it.getAsJsonObject("team")
+                    _teamStatus.value = "Joined team: ${team.get("name").asString}"
+                    _teamJoinToken.value = ""
+                    refreshTeams()
+                }.onFailure { _teamStatus.value = it.message?.take(140) ?: "Could not accept invitation." }
+        }
+    }
+
+    fun loadJarvisTeamMembers(teamId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching { cloudApi("v1/teams/$teamId/members").getAsJsonArray("members").map {
+                val item = it.asJsonObject
+                JarvisTeamMember(item.get("name")?.asString.orEmpty(), item.get("email")?.asString.orEmpty())
+            } }.onSuccess { _teamMembers.value = it }
+                .onFailure { _teamStatus.value = it.message?.take(140) ?: "Unable to load team members." }
         }
     }
 
