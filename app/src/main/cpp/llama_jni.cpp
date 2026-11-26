@@ -3,6 +3,7 @@
 #include <vector>
 #include <mutex>
 #include <atomic>
+#include <cstdint>
 #include "llama.h"
 
 static std::mutex g_mutex;
@@ -11,12 +12,85 @@ static llama_context * g_ctx = nullptr;
 static std::atomic<bool> g_cancel{false};
 static bool llama_abort_callback(void *) { return g_cancel.load(); }
 
+// JNI's GetStringUTFChars returns Modified UTF-8, which is not the byte
+// encoding expected by llama.cpp for supplementary Unicode characters. Convert
+// UTF-16 explicitly so Tamil, emoji, and other non-ASCII input reach the model
+// as standard UTF-8.
 static std::string jstring_to_string(JNIEnv *env, jstring value) {
     if (!value) return {};
-    const char * chars = env->GetStringUTFChars(value, nullptr);
-    std::string result(chars ? chars : "");
-    if (chars) env->ReleaseStringUTFChars(value, chars);
+    const jsize length = env->GetStringLength(value);
+    const jchar * chars = env->GetStringChars(value, nullptr);
+    if (!chars) return {};
+
+    std::string result;
+    result.reserve(static_cast<size_t>(length) * 3);
+    for (jsize i = 0; i < length; ++i) {
+        uint32_t codepoint = chars[i];
+        if (codepoint >= 0xD800 && codepoint <= 0xDBFF && i + 1 < length) {
+            const uint32_t low = chars[i + 1];
+            if (low >= 0xDC00 && low <= 0xDFFF) {
+                codepoint = 0x10000 + ((codepoint - 0xD800) << 10) + (low - 0xDC00);
+                ++i;
+            }
+        }
+        if (codepoint <= 0x7F) {
+            result.push_back(static_cast<char>(codepoint));
+        } else if (codepoint <= 0x7FF) {
+            result.push_back(static_cast<char>(0xC0 | (codepoint >> 6)));
+            result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        } else if (codepoint <= 0xFFFF) {
+            result.push_back(static_cast<char>(0xE0 | (codepoint >> 12)));
+            result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+            result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        } else {
+            result.push_back(static_cast<char>(0xF0 | (codepoint >> 18)));
+            result.push_back(static_cast<char>(0x80 | ((codepoint >> 12) & 0x3F)));
+            result.push_back(static_cast<char>(0x80 | ((codepoint >> 6) & 0x3F)));
+            result.push_back(static_cast<char>(0x80 | (codepoint & 0x3F)));
+        }
+    }
+    env->ReleaseStringChars(value, chars);
     return result;
+}
+
+// Convert standard UTF-8 model output back to Java UTF-16. NewStringUTF must
+// not be used here: its input is Modified UTF-8 and can corrupt 4-byte UTF-8.
+static jstring utf8_to_jstring(JNIEnv *env, const std::string &input) {
+    std::vector<jchar> utf16;
+    utf16.reserve(input.size());
+    size_t i = 0;
+    while (i < input.size()) {
+        const unsigned char first = static_cast<unsigned char>(input[i++]);
+        uint32_t codepoint = 0xFFFD;
+        size_t continuation = 0;
+        if (first <= 0x7F) {
+            codepoint = first;
+        } else if ((first & 0xE0) == 0xC0) {
+            codepoint = first & 0x1F; continuation = 1;
+        } else if ((first & 0xF0) == 0xE0) {
+            codepoint = first & 0x0F; continuation = 2;
+        } else if ((first & 0xF8) == 0xF0) {
+            codepoint = first & 0x07; continuation = 3;
+        }
+        bool valid = i + continuation <= input.size();
+        for (size_t j = 0; valid && j < continuation; ++j) {
+            const unsigned char next = static_cast<unsigned char>(input[i++]);
+            if ((next & 0xC0) != 0x80) { valid = false; break; }
+            codepoint = (codepoint << 6) | (next & 0x3F);
+        }
+        if (!valid || codepoint > 0x10FFFF ||
+            (codepoint >= 0xD800 && codepoint <= 0xDFFF)) {
+            codepoint = 0xFFFD;
+        }
+        if (codepoint <= 0xFFFF) {
+            utf16.push_back(static_cast<jchar>(codepoint));
+        } else {
+            codepoint -= 0x10000;
+            utf16.push_back(static_cast<jchar>(0xD800 + (codepoint >> 10)));
+            utf16.push_back(static_cast<jchar>(0xDC00 + (codepoint & 0x3FF)));
+        }
+    }
+    return env->NewString(utf16.data(), static_cast<jsize>(utf16.size()));
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
@@ -79,6 +153,7 @@ Java_com_opendroid_ai_core_llm_providers_LlamaCppNative_nativeGenerate(
     if (llama_decode(g_ctx, batch) != 0) { llama_batch_free(batch); return env->NewStringUTF("[JARVIS ERROR] Prompt decode failed."); }
     llama_batch_free(batch);
     llama_sampler * sampler = llama_sampler_chain_init(llama_sampler_chain_default_params());
+    if (!sampler) return env->NewStringUTF("[JARVIS ERROR] Sampler initialization failed.");
     llama_sampler_chain_add(sampler, llama_sampler_init_top_p(0.9f, 1));
     llama_sampler_chain_add(sampler, llama_sampler_init_temp(temperature > 0 ? temperature : 0.7f));
     llama_sampler_chain_add(sampler, llama_sampler_init_dist(LLAMA_DEFAULT_SEED));
@@ -99,7 +174,7 @@ Java_com_opendroid_ai_core_llm_providers_LlamaCppNative_nativeGenerate(
         llama_batch_free(next);
     }
     llama_sampler_free(sampler);
-    return env->NewStringUTF(output.c_str());
+    return utf8_to_jstring(env, output);
 }
 
 extern "C" JNIEXPORT void JNICALL
