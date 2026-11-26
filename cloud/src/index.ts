@@ -186,12 +186,24 @@ export default {
       }
 
       if (url.pathname === "/v1/chat" && request.method === "POST") {
-        if (!env.AI) {
-          return json({ error: "model_not_configured", message: "JARVIS model runtime is not configured on this cloud environment." }, 503, corsOrigin);
-        }
         let body: unknown;
         try { body = await request.json(); } catch {
           return json({ error: "invalid_json" }, 400, corsOrigin);
+        }
+        const teamIdValue = typeof body === "object" && body !== null && "team_id" in body
+          ? (body as { team_id?: unknown }).team_id
+          : null;
+        if (teamIdValue !== null && (typeof teamIdValue !== "string" || !teamIdValue.trim() || teamIdValue.length > 128)) {
+          return json({ error: "invalid_team_id" }, 400, corsOrigin);
+        }
+        if (typeof teamIdValue === "string") {
+          const membership = await env.DB.prepare(
+            "SELECT 1 AS member FROM team_memberships m JOIN teams t ON t.id = m.team_id WHERE m.team_id = ? AND m.user_id = ? AND t.archived_at IS NULL"
+          ).bind(teamIdValue, authSession.user.id).first();
+          if (!membership) return json({ error: "team_access_denied" }, 403, corsOrigin);
+        }
+        if (!env.AI) {
+          return json({ error: "model_not_configured", message: "JARVIS model runtime is not configured on this cloud environment." }, 503, corsOrigin);
         }
         const rawMessages = typeof body === "object" && body !== null && "messages" in body
           ? (body as { messages?: unknown }).messages
@@ -258,6 +270,90 @@ export default {
         } catch {
           return json({ error: "model_unavailable", message: "JARVIS model runtime could not complete this request." }, 502, corsOrigin);
         }
+      }
+
+      // Conversation lists are strictly separated: personal rows have team_id NULL;
+      // team rows are visible only to a current member of that exact team.
+      if (url.pathname === "/v1/conversations" && request.method === "GET") {
+        const teamId = url.searchParams.get("team_id");
+        if (teamId) {
+          const membership = await env.DB.prepare(
+            "SELECT 1 AS member FROM team_memberships m JOIN teams t ON t.id = m.team_id WHERE m.team_id = ? AND m.user_id = ? AND t.archived_at IS NULL"
+          ).bind(teamId, authSession.user.id).first();
+          if (!membership) return json({ error: "team_access_denied" }, 403, corsOrigin);
+          const result = await env.DB.prepare(
+            "SELECT id, title, team_id, created_at, updated_at FROM conversations WHERE team_id = ? ORDER BY updated_at DESC LIMIT 100"
+          ).bind(teamId).all();
+          return json({ conversations: result.results ?? [] }, 200, corsOrigin);
+        }
+        const result = await env.DB.prepare(
+          "SELECT id, title, team_id, created_at, updated_at FROM conversations WHERE owner_user_id = ? AND team_id IS NULL ORDER BY updated_at DESC LIMIT 100"
+        ).bind(authSession.user.id).all();
+        return json({ conversations: result.results ?? [] }, 200, corsOrigin);
+      }
+
+      if (url.pathname === "/v1/conversations" && request.method === "POST") {
+        let body: unknown;
+        try { body = await request.json(); } catch { return json({ error: "invalid_json" }, 400, corsOrigin); }
+        const title = typeof body === "object" && body !== null && "title" in body
+          ? String((body as { title?: unknown }).title ?? "").trim() : "";
+        const teamId = typeof body === "object" && body !== null && "team_id" in body
+          ? (body as { team_id?: unknown }).team_id : null;
+        if (title.length > 120 || (teamId !== null && (typeof teamId !== "string" || !teamId.trim() || teamId.length > 128))) {
+          return json({ error: "invalid_conversation" }, 400, corsOrigin);
+        }
+        if (typeof teamId === "string") {
+          const membership = await env.DB.prepare(
+            "SELECT 1 AS member FROM team_memberships m JOIN teams t ON t.id = m.team_id WHERE m.team_id = ? AND m.user_id = ? AND t.archived_at IS NULL"
+          ).bind(teamId, authSession.user.id).first();
+          if (!membership) return json({ error: "team_access_denied" }, 403, corsOrigin);
+        }
+        const conversationId = crypto.randomUUID();
+        await env.DB.prepare(
+          "INSERT INTO conversations (id, owner_user_id, team_id, title) VALUES (?, ?, ?, ?)"
+        ).bind(conversationId, authSession.user.id, teamId, title || "New Chat").run();
+        return json({ conversation: { id: conversationId, title: title || "New Chat", team_id: teamId } }, 201, corsOrigin);
+      }
+
+      const conversationMessagesPath = url.pathname.match(/^\/v1\/conversations\/([^/]+)\/messages$/);
+      if (conversationMessagesPath) {
+        const conversationId = decodeURIComponent(conversationMessagesPath[1]);
+        const conversation = await env.DB.prepare(
+          "SELECT id, owner_user_id, team_id FROM conversations WHERE id = ?"
+        ).bind(conversationId).first<{ id: string; owner_user_id: string; team_id: string | null }>();
+        if (!conversation) return json({ error: "conversation_not_found" }, 404, corsOrigin);
+        if (conversation.team_id === null) {
+          if (conversation.owner_user_id !== authSession.user.id) return json({ error: "conversation_access_denied" }, 403, corsOrigin);
+        } else {
+          const membership = await env.DB.prepare(
+            "SELECT 1 AS member FROM team_memberships m JOIN teams t ON t.id = m.team_id WHERE m.team_id = ? AND m.user_id = ? AND t.archived_at IS NULL"
+          ).bind(conversation.team_id, authSession.user.id).first();
+          if (!membership) return json({ error: "conversation_access_denied" }, 403, corsOrigin);
+        }
+        if (request.method === "GET") {
+          const result = await env.DB.prepare(
+            "SELECT id, role, content, created_at FROM messages WHERE conversation_id = ? ORDER BY created_at ASC LIMIT 500"
+          ).bind(conversationId).all();
+          return json({ messages: result.results ?? [] }, 200, corsOrigin);
+        }
+        if (request.method === "POST") {
+          let body: unknown;
+          try { body = await request.json(); } catch { return json({ error: "invalid_json" }, 400, corsOrigin); }
+          const role = typeof body === "object" && body !== null && "role" in body ? (body as { role?: unknown }).role : null;
+          const content = typeof body === "object" && body !== null && "content" in body ? (body as { content?: unknown }).content : null;
+          if ((role !== "user" && role !== "assistant") || typeof content !== "string" || !content.trim() || content.length > 12000) {
+            return json({ error: "invalid_message" }, 400, corsOrigin);
+          }
+          const messageId = crypto.randomUUID();
+          await env.DB.batch([
+            env.DB.prepare("INSERT INTO messages (id, conversation_id, role, content) VALUES (?, ?, ?, ?)")
+              .bind(messageId, conversationId, role, content),
+            env.DB.prepare("UPDATE conversations SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now') WHERE id = ?")
+              .bind(conversationId)
+          ]);
+          return json({ message: { id: messageId, role, content } }, 201, corsOrigin);
+        }
+        return json({ error: "method_not_allowed" }, 405, corsOrigin);
       }
 
       const teamMembersPath = url.pathname.match(/^\/v1\/teams\/([^/]+)\/(members|invitations)$/);

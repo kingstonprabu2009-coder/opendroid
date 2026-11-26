@@ -52,3 +52,11 @@ Configure secrets only through the provider secret manager.
 - Inference uses the optional Cloudflare Workers AI binding `AI`; model selection is `JARVIS_MODEL`, defaulting to `@cf/meta/llama-3.1-8b-instruct`.
 - If the binding is absent, the route returns `503 model_not_configured`. No fake response or vendor fallback is used.
 - This is an open-weight hosted inference adapter for the JARVIS agent runtime, not a claim that JARVIS has trained its own foundation model. Model availability, account eligibility, and quotas must be confirmed before deployment.
+
+## Conversation isolation (backend foundation)
+- `GET /v1/conversations` lists only the signed-in user's personal conversations (`team_id IS NULL`).
+- `GET /v1/conversations?team_id=<id>` lists shared conversations for that team only after checking active membership. Team conversations are shared with all members of that team, not just the creator.
+- `POST /v1/conversations` creates a personal conversation when `team_id` is omitted, or a team conversation after the same membership check when `team_id` is supplied.
+- `GET|POST /v1/conversations/:conversationId/messages` reads or appends messages only after loading the conversation and authorizing its scope. Personal conversations require the owning user; team conversations require current membership in that exact active team. Client-supplied roles are never used for authorization.
+- `POST /v1/chat` optionally accepts `team_id`; if present, the server checks current membership before attempting inference. Omitting it preserves the personal-chat path.
+- The Android team chat selector, context propagation, and end-to-end cross-member/cross-team tests are not complete yet. These endpoints are a backend foundation, not a claim that team chat is fully integrated or deployed.
