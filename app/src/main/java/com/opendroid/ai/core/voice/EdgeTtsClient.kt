@@ -34,7 +34,7 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
 
     /**
      * Writes an MP3 of [text] spoken by [voice] to [target].
-     * Blocks the calling thread (up to ~20 seconds). Returns false on any failure.
+     * Blocks only its caller thread (up to 12 seconds). Call from Dispatchers.IO; returns false on failure.
      */
     fun synthesize(text: String, voice: String, target: File, pitch: String = "+0Hz", rate: String = "+0%"): Boolean {
         val done = CountDownLatch(1)
@@ -109,8 +109,9 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
                 }
             })
             socket = ws
-            done.await(20, TimeUnit.SECONDS)
-            try { ws.close(1000, null) } catch (_: Exception) {}
+            val completed = done.await(12, TimeUnit.SECONDS)
+            if (!completed) ws.cancel()
+            else try { ws.close(1000, null) } catch (_: Exception) {}
         } finally {
             socket = null
             try { out.close() } catch (_: Exception) {}

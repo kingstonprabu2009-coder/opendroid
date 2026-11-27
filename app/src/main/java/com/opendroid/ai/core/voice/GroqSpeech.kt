@@ -132,6 +132,7 @@ class GroqSpeech(
             if (recorder.state != AudioRecord.STATE_INITIALIZED) throw IOException("Mic busy")
             recorder.startRecording()
             val frame = ShortArray(FRAME) // 100 ms
+            val pcmBytes = ByteArray(FRAME * 2) // reuse one frame buffer; avoid per-frame allocations
             val audio = ByteArrayOutputStream()
             var noise = Double.MAX_VALUE
             var loudFrames = 0
@@ -153,13 +154,12 @@ class GroqSpeech(
                 // Quietest early frame = room noise, even if the user starts talking at once.
                 if (index < 5) noise = minOf(noise, level)
                 val threshold = (noise * 2.5).coerceIn(350.0, 1800.0)
-                val pcmBytes = ByteArray(read * 2)
                 for (i in 0 until read) {
                     val sample = frame[i].toInt()
                     pcmBytes[i * 2] = sample.toByte()
                     pcmBytes[i * 2 + 1] = (sample shr 8).toByte()
                 }
-                audio.write(pcmBytes)
+                audio.write(pcmBytes, 0, read * 2)
                 if (level > threshold) {
                     loudFrames++
                     silentFrames = 0

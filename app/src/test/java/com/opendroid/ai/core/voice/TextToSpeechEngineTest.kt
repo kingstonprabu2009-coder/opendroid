@@ -154,13 +154,19 @@ class TextToSpeechEngineTest {
         throw AssertionError("expected $players clip(s) to start playing")
     }
 
-    private fun newEngine() = TextToSpeechEngine(
+    private fun newEngine(): TextToSpeechEngine {
+        // These tests exercise the ElevenLabs transport and playback lifecycle explicitly.
+        // Production defaults to Edge Neural; tests must select their mocked provider.
+        context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE)
+            .edit().putString("provider", "elevenlabs").commit()
+        return TextToSpeechEngine(
         context = context,
         settingsRepository = settingsWithElevenLabsKey(),
         client = client,
         elevenLabsBaseUrl = server.url("/").toString().trimEnd('/'),
         dispatcher = speechThread.asCoroutineDispatcher()
-    )
+        )
+    }
 
     private fun clipsInCache(): List<File> =
         context.cacheDir.listFiles { file -> file.name.startsWith("elevenlabs_") }.orEmpty().toList()
