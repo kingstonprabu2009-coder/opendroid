@@ -119,7 +119,6 @@ fun SettingsScreen(
 
     var providerDropdownExpanded by remember { mutableStateOf(false) }
     var keysSectionExpanded by remember { mutableStateOf(false) }
-    var voiceSectionExpanded by remember { mutableStateOf(false) }
     var planningSectionExpanded by remember { mutableStateOf(false) }
 
     var showAuthRequiredDialog by remember { mutableStateOf<String?>(null) }
@@ -1971,206 +1970,14 @@ fun SettingsScreen(
             }
             }
 
-            // ElevenLabs Voice Synthesis Card
             item {
                 Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
+                    modifier = Modifier.fillMaxWidth().border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
                     colors = CardDefaults.cardColors(containerColor = CardBackground)
                 ) {
                     Column(modifier = Modifier.padding(16.dp)) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { voiceSectionExpanded = !voiceSectionExpanded },
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = "ELEVENLABS VOICE SYNTHESIS",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = AccentCyan
-                            )
-                            Icon(
-                                imageVector = if (voiceSectionExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = "Toggle Voice Section",
-                                tint = AccentCyan
-                            )
-                        }
-
-                        AnimatedVisibility(visible = voiceSectionExpanded) {
-                            Column(
-                                modifier = Modifier.padding(top = 16.dp),
-                                verticalArrangement = Arrangement.spacedBy(12.dp)
-                            ) {
-                                val voiceCtx = androidx.compose.ui.platform.LocalContext.current
-                                val voicePrefs = remember { voiceCtx.getSharedPreferences("jarvis_voice", android.content.Context.MODE_PRIVATE) }
-                                var liveOn by remember { mutableStateOf(voicePrefs.getBoolean("live_gemini", false)) }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                                ) {
-                                    Text("Gemini Live streaming (needs Gemini key)", fontSize = 13.sp, color = TextPrimary)
-                                    Switch(checked = liveOn, onCheckedChange = {
-                                        liveOn = it
-                                        voicePrefs.edit().putBoolean("live_gemini", it).apply()
-                                    })
-                                }
-                                var saverOn by remember { mutableStateOf(voicePrefs.getBoolean("battery_saver", true)) }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                                ) {
-                                    Text("Live-call battery saver (end after 40 s silence)", fontSize = 13.sp, color = TextPrimary)
-                                    Switch(checked = saverOn, onCheckedChange = {
-                                        saverOn = it
-                                        voicePrefs.edit().putBoolean("battery_saver", it).apply()
-                                    })
-                                }
-                                Text(
-                                    "This option only changes the live-call silence timeout; it does not globally optimize Android battery use. Wake-word detection uses the microphone while the Live screen is open. Background listening continues in a foreground service only after you press START, until you press STOP.",
-                                    fontSize = 11.sp,
-                                    color = TextSecondary,
-                                    lineHeight = 16.sp
-                                )
-                                var bargeOn by remember { mutableStateOf(voicePrefs.getBoolean("barge_in", true)) }
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                                ) {
-                                    Text("Interrupt Jarvis by talking", fontSize = 13.sp, color = TextPrimary)
-                                    Switch(checked = bargeOn, onCheckedChange = {
-                                        bargeOn = it
-                                        voicePrefs.edit().putBoolean("barge_in", it).apply()
-                                    })
-                                }
-                                Text("Voice engine", fontSize = 12.sp, color = TextSecondary)
-                                var voiceProvider by remember { mutableStateOf(voicePrefs.getString("provider", "edge") ?: "edge") }
-                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    listOf("edge" to "Edge Neural · No API key", "phone" to "Phone TTS", "elevenlabs" to "ElevenLabs").forEach { (key, label) ->
-                                        if (voiceProvider == key) Button(onClick = {}) { Text(label, fontSize = 10.sp) }
-                                        else OutlinedButton(onClick = { voiceProvider = key; voicePrefs.edit().putString("provider", key).apply() }) { Text(label, fontSize = 10.sp) }
-                                    }
-                                }
-                                val tamilVoices = listOf(
-                                    "ta-IN-ValluvarNeural" to "Valluvar · India · Male",
-                                    "ta-IN-PallaviNeural" to "Pallavi · India · Female",
-                                    "ta-LK-KumarNeural" to "Kumar · Sri Lanka · Male",
-                                    "ta-LK-SaranyaNeural" to "Saranya · Sri Lanka · Female",
-                                    "ta-MY-SuryaNeural" to "Surya · Malaysia · Male",
-                                    "ta-MY-KaniNeural" to "Kani · Malaysia · Female",
-                                    "ta-SG-AnbuNeural" to "Anbu · Singapore · Male",
-                                    "ta-SG-VenbaNeural" to "Venba · Singapore · Female",
-                                    "ta-IN-ValluvarNeural|soft" to "Valluvar · Soft pitch style",
-                                    "ta-IN-PallaviNeural|bright" to "Pallavi · Bright pitch style"
-                                )
-                                var selectedEdgeVoice by remember { mutableStateOf(voicePrefs.getString("edge_voice", "ta-IN-ValluvarNeural") ?: "ta-IN-ValluvarNeural") }
-                                var voiceMenu by remember { mutableStateOf(false) }
-                                Text("Tamil neural voice · 10 selectable profiles", fontSize = 12.sp, color = TextSecondary)
-                                Box {
-                                    OutlinedButton(onClick = { voiceMenu = true }, modifier = Modifier.fillMaxWidth()) {
-                                        Text(tamilVoices.firstOrNull { it.first == selectedEdgeVoice }?.second ?: "Choose Tamil voice")
-                                    }
-                                    DropdownMenu(expanded = voiceMenu, onDismissRequest = { voiceMenu = false }) {
-                                        tamilVoices.forEach { (id, label) -> DropdownMenuItem(text = { Text(label) }, onClick = {
-                                            selectedEdgeVoice = id
-                                            voicePrefs.edit().putString("edge_voice", id).putString("provider", "edge").apply()
-                                            voiceProvider = "edge"
-                                            voiceMenu = false
-                                        }) }
-                                    }
-                                }
-                                Text("Edge Neural uses online synthesis; it does not use the phone's Google voice. The two pitch profiles are voice-style adjustments, not separate child voices.", fontSize = 10.sp, color = TextSecondary)
-                                OutlinedButton(onClick = {
-                                    coroutineScope.launch {
-                                        val profile = selectedEdgeVoice
-                                        val voiceId = profile.substringBefore('|')
-                                        val pitch = when (profile.substringAfter('|', "")) { "soft" -> "-2Hz"; "bright" -> "+2Hz"; else -> "+0Hz" }
-                                        val sample = File.createTempFile("jarvis_voice_test_", ".mp3", voiceCtx.cacheDir)
-                                        val ok = withContext(Dispatchers.IO) {
-                                            EdgeTtsClient(OkHttpClient.Builder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build())
-                                                .synthesize("வணக்கம், நான் ஜார்விஸ். இது நீங்கள் தேர்ந்தெடுத்த குரல் சோதனை.", voiceId, sample, pitch)
-                                        }
-                                        if (ok) {
-                                            runCatching {
-                                                android.media.MediaPlayer().apply {
-                                                    setDataSource(sample.absolutePath)
-                                                    setOnCompletionListener { it.release(); sample.delete() }
-                                                    setOnErrorListener { player, _, _ -> player.release(); sample.delete(); true }
-                                                    setOnPreparedListener { it.start() }
-                                                    prepareAsync()
-                                                }
-                                            }.onFailure { sample.delete() }
-                                        } else {
-                                            sample.delete()
-                                            android.widget.Toast.makeText(voiceCtx, "Selected Edge voice unavailable. Check internet.", android.widget.Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                }) { Text("Test selected Tamil voice") }
-                                OutlinedButton(onClick = {
-                                    voicePrefs.edit().putString("provider", voiceProvider).apply()
-                                    var t: android.speech.tts.TextToSpeech? = null
-                                    t = android.speech.tts.TextToSpeech(voiceCtx) { st ->
-                                        val e = t
-                                        if (st == android.speech.tts.TextToSpeech.SUCCESS && e != null) {
-                                            e.language = java.util.Locale.forLanguageTag("ta-IN")
-                                            e.speak("வணக்கம், நான் ஜார்விஸ். இது தேர்ந்தெடுத்த குரல் சோதனை.", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "jarvis_voice_test")
-                                        }
-                                    }
-                                }) { Text("Test phone voice") }
-                                listOf("ta" to "Tamil", "en" to "English").forEach { (lang, label) ->
-                                    OutlinedButton(onClick = {
-                                        var t: android.speech.tts.TextToSpeech? = null
-                                        t = android.speech.tts.TextToSpeech(voiceCtx) { st ->
-                                            val e = t
-                                            if (st == android.speech.tts.TextToSpeech.SUCCESS && e != null) {
-                                                val vs = try {
-                                                    e.voices?.filter { it.locale.language == lang }?.sortedBy { it.name }
-                                                } catch (x: Exception) { null }
-                                                if (!vs.isNullOrEmpty()) {
-                                                    val idx = (voicePrefs.getInt("idx_$lang", -1) + 1) % vs.size
-                                                    val v = vs[idx]
-                                                    voicePrefs.edit().putInt("idx_$lang", idx).putString("voice_$lang", v.name).apply()
-                                                    e.setVoice(v)
-                                                    val msg = if (lang == "ta") "வணக்கம் சார், நான் ஜார்விஸ்" else "Hello sir, I am Jarvis"
-                                                    android.widget.Toast.makeText(voiceCtx, "$label voice ${idx + 1}/${vs.size}", android.widget.Toast.LENGTH_SHORT).show()
-                                                    e.speak(msg, android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "p")
-                                                }
-                                            }
-                                        }
-                                    }) { Text("Next $label voice") }
-                                }
-                                SecureApiKeyField(
-                                    value = config.elevenLabsApiKey,
-                                    onValueChange = { viewModel.updateElevenLabsApiKey(it) },
-                                    label = "ElevenLabs API Key"
-                                )
-                                OutlinedTextField(
-                                    value = config.elevenLabsVoiceId,
-                                    onValueChange = { viewModel.updateElevenLabsVoiceId(it) },
-                                    label = { Text("ElevenLabs Voice ID", fontSize = 12.sp) },
-                                    singleLine = true,
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = AccentCyan,
-                                        unfocusedBorderColor = BorderColor,
-                                        focusedTextColor = TextPrimary,
-                                        unfocusedTextColor = TextPrimary
-                                    ),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Text(
-                                    text = "If ElevenLabs key is not set, Jarvis automatically falls back to native offline Android Text-to-Speech.",
-                                    fontSize = 10.sp,
-                                    color = TextSecondary
-                                )
-                            }
-                        }
+                        Text("VOICE CONTROLS MOVED", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = AccentCyan)
+                        Text("Use the dedicated Voice tab to choose, test, and configure your JARVIS voice.", fontSize = 12.sp, color = TextSecondary)
                     }
                 }
             }
