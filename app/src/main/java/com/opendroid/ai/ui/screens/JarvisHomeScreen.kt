@@ -70,6 +70,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.geometry.Offset
+import kotlin.math.sin
 import androidx.core.content.ContextCompat
 import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -458,6 +460,13 @@ fun JarvisHomeScreen(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 2.sp
                         )
+                        Spacer(Modifier.height(10.dp))
+                        VoiceStateVisualizer(
+                            color = glowColor,
+                            active = active || speaking,
+                            modifier = Modifier.fillMaxWidth(0.72f)
+                        )
+                        Spacer(Modifier.height(8.dp))
 
                         // Conversation history under the orb; swipe up to read older lines.
                         Spacer(Modifier.height(8.dp))
@@ -579,6 +588,42 @@ private fun TeachTab(modifier: Modifier = Modifier) {
                     }) { Text("Delete", fontSize = 12.sp) }
                 }
             }
+        }
+    }
+}
+
+
+@Composable
+private fun VoiceStateVisualizer(
+    color: Color,
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val motion = rememberInfiniteTransition(label = "voiceStateVisualizer")
+    val phase by motion.animateFloat(
+        initialValue = 0f,
+        targetValue = (Math.PI * 2.0).toFloat(),
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = if (active) 850 else 2600, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "voiceVisualizerPhase"
+    )
+    Canvas(modifier = modifier.height(34.dp)) {
+        val count = 31
+        val barWidth = 3.dp.toPx()
+        val gap = (size.width - count * barWidth) / (count - 1)
+        val centerY = size.height / 2f
+        for (i in 0 until count) {
+            val wave = (sin(phase + i * 0.43f) + 1f) / 2f
+            val envelope = (0.22f + wave * if (active) 0.78f else 0.28f)
+            val barHeight = size.height * envelope * (if (active) 0.92f else 0.48f)
+            drawRoundRect(
+                color = color.copy(alpha = if (active) 0.9f else 0.38f),
+                topLeft = Offset(i * (barWidth + gap), centerY - barHeight / 2f),
+                size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth, barWidth)
+            )
         }
     }
 }
