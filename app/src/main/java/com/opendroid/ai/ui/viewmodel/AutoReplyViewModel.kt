@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -93,7 +94,15 @@ class AutoReplyViewModel internal constructor(
     }
 
     override fun onCleared() {
-        flushPendingConfig()
+        // ViewModelStore.clear() is synchronous. Complete the final pending DataStore
+        // transaction before returning so a popped screen cannot lose its last edit.
+        debounceJob?.cancel()
+        debounceJob = null
+        runBlocking(Dispatchers.IO) {
+            withContext(NonCancellable) {
+                persistPendingConfig()
+            }
+        }
     }
 
     // A separate job, so cancelling the debounce can never interrupt a write already under way.
