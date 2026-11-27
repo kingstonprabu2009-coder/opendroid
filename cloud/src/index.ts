@@ -293,6 +293,8 @@ export default {
         const maxTokens = typeof body === "object" && body !== null && "max_tokens" in body
           ? (body as { max_tokens?: unknown }).max_tokens
           : 1200;
+        const streamRequested = typeof body === "object" && body !== null &&
+          "stream" in body && (body as { stream?: unknown }).stream === true;
         if (typeof applicationContext !== "string" || applicationContext.length > 24000) {
           return json({ error: "invalid_application_context" }, 400, corsOrigin);
         }
@@ -398,11 +400,22 @@ export default {
                   model: "moonshotai/kimi-k2.6:free",
                   messages: modelMessages,
                   max_tokens: maxTokens,
+                  stream: streamRequested,
                   provider: { allow_fallbacks: false }
                 }),
-                signal: AbortSignal.timeout(8000)
+                signal: AbortSignal.timeout(streamRequested ? 120_000 : 45_000)
               });
               if (!kimiResponse.ok) continue;
+              if (streamRequested && kimiResponse.body) {
+                return withCors(new Response(kimiResponse.body, {
+                  status: 200,
+                  headers: {
+                    "content-type": "text/event-stream; charset=utf-8",
+                    "cache-control": "no-cache, no-transform",
+                    "x-accel-buffering": "no"
+                  }
+                }), corsOrigin);
+              }
               const kimiResult = await kimiResponse.json() as { choices?: Array<{ message?: { content?: unknown } }> };
               responseText = String(kimiResult.choices?.[0]?.message?.content ?? "");
             } else {
@@ -410,8 +423,19 @@ export default {
               const result = await env.AI.run(model, {
                 messages: modelMessages as never,
                 max_tokens: maxTokens,
+                ...(streamRequested ? { stream: true } : {}),
                 ...(model.includes("gemma-4") ? { chat_template_kwargs: { enable_thinking: enableThinking } } : {}),
               });
+              if (streamRequested && result instanceof ReadableStream) {
+                return withCors(new Response(result, {
+                  status: 200,
+                  headers: {
+                    "content-type": "text/event-stream; charset=utf-8",
+                    "cache-control": "no-cache, no-transform",
+                    "x-accel-buffering": "no"
+                  }
+                }), corsOrigin);
+              }
               responseText = typeof result === "object" && result !== null && "response" in result
                 ? String((result as { response?: unknown }).response ?? "")
                 : typeof result === "object" && result !== null && "choices" in result

@@ -11,7 +11,6 @@ import com.opendroid.ai.core.llm.error.LLMException
 import com.opendroid.ai.data.models.ChatMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Request
@@ -106,8 +105,88 @@ class JarvisCloudProvider @Inject constructor(
         }
     }
 
-    override fun streamComplete(request: LLMRequest): Flow<String> = flow {
-        emit(complete(request).content)
+    override fun streamComplete(request: LLMRequest): Flow<String> = kotlinx.coroutines.flow.channelFlow {
+        val baseUrl = BuildConfig.JARVIS_CLOUD_BASE_URL.trim()
+        if (!baseUrl.startsWith("https://")) {
+            throw IOException("JARVIS Cloud is not configured yet. Cloud deployment URL is required.")
+        }
+        val messages = request.messages.map { message ->
+            val role = if (message.sender == ChatMessage.Sender.USER) "user" else "assistant"
+            val image = message.imageBase64
+            if (image != null && image.length > 5_500_000) {
+                throw IOException("The selected image is too large for JARVIS Cloud analysis.")
+            }
+            mapOf(
+                "role" to role,
+                "content" to if (image != null && role == "user") {
+                    listOf(
+                        mapOf("type" to "text", "text" to message.text),
+                        mapOf("type" to "image_url", "image_url" to mapOf("url" to "data:image/jpeg;base64,$image"))
+                    )
+                } else message.text
+            )
+        }
+        if (messages.isEmpty()) throw IOException("Add a message before sending.")
+        val payload = gson.toJson(
+            mapOf(
+                "application_context" to request.systemPrompt.take(24000),
+                "max_tokens" to request.maxTokens.coerceIn(1, 4096),
+                "team_id" to request.teamId,
+                "messages" to messages,
+                "stream" to true
+            )
+        )
+        val httpRequest = Request.Builder()
+            .url(baseUrl.trimEnd('/') + "/v1/chat")
+            .header("Accept", "text/event-stream")
+            .post(payload.toRequestBody(jsonType))
+            .build()
+
+        withContext(Dispatchers.IO) {
+            session.authenticatedClient().newCall(httpRequest).execute().use { response ->
+                val body = response.body
+                if (response.code == 401) {
+                    throw LLMException(error = LLMError.AuthMissing, provider = name, model = "jarvis-cloud", status = 401)
+                }
+                if (!response.isSuccessful) {
+                    body?.close()
+                    val statusError = when {
+                        response.code == 403 -> LLMError.AuthInvalid
+                        response.code == 429 -> LLMError.RateLimited
+                        response.code >= 500 -> LLMError.ServerError
+                        response.code in 400..499 -> LLMError.RequestInvalid
+                        else -> LLMError.Unknown
+                    }
+                    throw LLMException(
+                        error = statusError,
+                        provider = name,
+                        model = "jarvis-cloud",
+                        status = response.code,
+                        retryable = response.code == 429 || response.code >= 500
+                    )
+                }
+                val source = body?.source() ?: throw IOException("JARVIS Cloud returned an empty stream.")
+                var receivedContent = false
+                while (!source.exhausted()) {
+                    val line = source.readUtf8Line() ?: break
+                    if (!line.startsWith("data:")) continue
+                    val data = line.removePrefix("data:").trim()
+                    if (data.isEmpty()) continue
+                    if (data == "[DONE]") break
+                    val event = runCatching { gson.fromJson(data, Map::class.java) }.getOrNull() ?: continue
+                    val choices = event["choices"] as? List<*>
+                    val choice = choices?.firstOrNull() as? Map<*, *>
+                    val delta = choice?.get("delta") as? Map<*, *>
+                    val message = choice?.get("message") as? Map<*, *>
+                    val content = delta?.get("content") ?: event["response"] ?: message?.get("content")
+                    if (content is String && content.isNotEmpty()) {
+                        receivedContent = true
+                        send(content)
+                    }
+                }
+                if (!receivedContent) throw IOException("JARVIS Cloud returned an empty streamed response.")
+            }
+        }
     }
 
     override suspend fun isAvailable(): Boolean =
