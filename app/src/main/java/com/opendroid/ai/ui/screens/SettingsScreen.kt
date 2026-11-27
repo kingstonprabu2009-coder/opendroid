@@ -2148,12 +2148,18 @@ fun SettingsScreen(
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
                                 ) {
-                                    Text("Battery saver (hang up live call after 40 s silence)", fontSize = 13.sp, color = TextPrimary)
+                                    Text("Live-call battery saver (end after 40 s silence)", fontSize = 13.sp, color = TextPrimary)
                                     Switch(checked = saverOn, onCheckedChange = {
                                         saverOn = it
                                         voicePrefs.edit().putBoolean("battery_saver", it).apply()
                                     })
                                 }
+                                Text(
+                                    "This option only changes the live-call silence timeout; it does not globally optimize Android battery use. Wake-word detection uses the microphone while the Live screen is open. Background listening continues in a foreground service only after you press START, until you press STOP.",
+                                    fontSize = 11.sp,
+                                    color = TextSecondary,
+                                    lineHeight = 16.sp
+                                )
                                 var bargeOn by remember { mutableStateOf(voicePrefs.getBoolean("barge_in", true)) }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),

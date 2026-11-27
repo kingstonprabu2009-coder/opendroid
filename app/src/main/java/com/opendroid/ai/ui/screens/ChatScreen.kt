@@ -413,6 +413,14 @@ fun ChatScreen(
                     verticalArrangement = Arrangement.spacedBy(16.dp),
                     contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp)
                 ) {
+                    if (history.isEmpty()) {
+                        item(key = "jarvis-welcome") {
+                            JarvisWelcomeCard(
+                                textOnly = textOnly,
+                                onSuggestion = { inputQuery = it }
+                            )
+                        }
+                    }
                     items(history) { msg ->
                         ChatBubble(
                             message = msg,
@@ -774,6 +782,62 @@ fun ChatScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun JarvisWelcomeCard(
+    textOnly: Boolean,
+    onSuggestion: (String) -> Unit
+) {
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 10.dp),
+        shape = RoundedCornerShape(26.dp),
+        color = CardBackground,
+        border = BorderStroke(1.dp, BorderColor)
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .size(46.dp)
+                        .clip(CircleShape)
+                        .background(Brush.linearGradient(listOf(AccentCyan, AccentPurple))),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text("J", color = DarkBackground, fontSize = 25.sp, fontWeight = FontWeight.Black)
+                }
+                Spacer(Modifier.width(12.dp))
+                Column {
+                    Text(
+                        if (textOnly) "Your JARVIS workspace" else "JARVIS is ready",
+                        color = TextPrimary,
+                        fontSize = 19.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text("AI assistant · ${if (textOnly) "Chat" else "Voice + Chat"}", color = TextSecondary, fontSize = 12.sp)
+                }
+            }
+            Text(
+                if (textOnly) "Ask a question, explore an idea, or get help with a task."
+                else "Tell me what you need. I can help you think, plan, and work through tasks.",
+                color = TextSecondary,
+                fontSize = 14.sp,
+                lineHeight = 20.sp
+            )
+            Text("TRY ASKING", color = AccentCyan, fontSize = 10.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = { onSuggestion("Help me plan my day") }, label = { Text("Plan my day") })
+                AssistChip(onClick = { onSuggestion("Explain a topic simply") }, label = { Text("Explain a topic") })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AssistChip(onClick = { onSuggestion("Help me organize my tasks") }, label = { Text("Organize tasks") })
+                AssistChip(onClick = { onSuggestion("Summarize these notes") }, label = { Text("Summarize notes") })
+            }
+        }
     }
 }
 

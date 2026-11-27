@@ -2,6 +2,7 @@ package com.opendroid.ai.core.llm.prompts
 
 import com.opendroid.ai.core.agent.ActionSchema
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PlanningPromptsTest {
@@ -15,5 +16,22 @@ class PlanningPromptsTest {
         assertEquals(listOf("title", "date", "time"), promptParams)
         val schemaParams = ActionSchema.getAction("CREATE_CALENDAR_EVENT")!!.params.map { it.name }
         assertEquals(emptyList<String>(), promptParams - schemaParams.toSet())
+    }
+
+    @Test
+    fun `cloud planner includes truthful reasoning and approval boundaries`() {
+        val prompt = PlanningPrompts.buildPlanningPrompt()
+        assertTrue(prompt.contains("REASONING CHECKLIST"))
+        assertTrue(prompt.contains("runtime approval gates"))
+        assertTrue(prompt.contains("Never claim an action has completed"))
+        assertTrue(prompt.contains("Never place private personal memory in a team-scoped plan"))
+    }
+
+    @Test
+    fun `on-device planner keeps the same core safety boundaries`() {
+        val prompt = PlanningPrompts.buildOnDevicePlanningPrompt()
+        assertTrue(prompt.contains("JARVIS's on-device planning engine"))
+        assertTrue(prompt.contains("Follow approvals, risk checks, permissions and confirmations"))
+        assertTrue(prompt.contains("keep private memory out of team plans"))
     }
 }

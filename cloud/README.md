@@ -49,7 +49,8 @@ Configure secrets only through the provider secret manager.
 - Request body: `{ "application_context": "...", "max_tokens": 1200, "messages": [{ "role": "user" | "assistant", "content": "..." }] }`.
 - The server always prepends its own safety policy. The optional app context is length-limited and cannot grant permissions or authorize actions.
 - Requests are limited to 32 messages, 12,000 characters per message, 48,000 total message characters, 24,000 context characters, and 4,096 output tokens.
-- Inference uses the optional Cloudflare Workers AI binding `AI`; model selection is `JARVIS_MODEL`, defaulting to `@cf/meta/llama-3.1-8b-instruct`.
+- Inference uses the optional Cloudflare Workers AI binding `AI`; model selection is `JARVIS_MODEL`, defaulting to `@cf/google/gemma-4-26b-a4b-it` (reasoning, function calling, multilingual support, and a 256K-token context window; image input is not yet enabled in the Android cloud client). Set `JARVIS_MODEL` to another currently supported model when needed.
+- Cost guardrail: Cloudflare Workers AI currently documents a 10,000-Neuron daily free allocation. Gemma 4 is listed at 9,091 Neurons per million input tokens and 27,273 per million output tokens; the allowance is shared across requests and can be exhausted. Treat this as limited free usage, never unlimited or guaranteed zero-cost service.
 - If the binding is absent, the route returns `503 model_not_configured`. No fake response or vendor fallback is used.
 - This is an open-weight hosted inference adapter for the JARVIS agent runtime, not a claim that JARVIS has trained its own foundation model. Model availability, account eligibility, and quotas must be confirmed before deployment.
 

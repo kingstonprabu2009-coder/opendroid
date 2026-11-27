@@ -44,6 +44,14 @@ export function isValidInviteEmail(value: string): boolean {
   return value.length <= 254 && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+/** Enable Gemma reasoning for deliberate multi-step work, while keeping routine chat fast. */
+export function shouldEnableThinking(applicationContext: string, latestUserMessage: string): boolean {
+  if (/planning engine|plan merger|safety and security critic|plan json format/i.test(applicationContext)) return true;
+  const message = latestUserMessage.trim();
+  if (message.length > 1200) return true;
+  return /\b(analy[sz]e|architecture|architect|debug|refactor|code review|review (this|the code)|implement|optimi[sz]e|compare|evaluate|design|step[- ]by[- ]step|reason through|trade[- ]offs|root cause|performance|algorithm|proof|derive|deep dive|detailed analysis)\b/i.test(message);
+}
+
 export async function hashInvitationToken(token: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token));
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, "0")).join("");
@@ -243,7 +251,11 @@ export default {
         if (!messages.some(message => message.role === "user")) {
           return json({ error: "user_message_required" }, 400, corsOrigin);
         }
-        const model = env.JARVIS_MODEL?.trim() || "@cf/meta/llama-3.1-8b-instruct";
+        const model = env.JARVIS_MODEL?.trim() || "@cf/google/gemma-4-26b-a4b-it";
+        // Use deeper reasoning for planning and clearly complex user requests; keep
+        // routine chat fast to control latency and the free daily inference allowance.
+        const latestUserMessage = [...messages].reverse().find(message => message.role === "user")?.content ?? "";
+        const enableThinking = shouldEnableThinking(applicationContext, latestUserMessage);
         try {
           const result = await env.AI.run(model, {
             messages: [
@@ -259,6 +271,9 @@ export default {
               ...messages
             ],
             max_tokens: maxTokens,
+            // Gemma 4 uses this template flag; do not send a model-specific option
+            // when an operator deliberately selects a different supported model.
+            ...(model.includes("gemma-4") ? { chat_template_kwargs: { enable_thinking: enableThinking } } : {}),
           });
           const responseText = typeof result === "object" && result !== null && "response" in result
             ? String((result as { response?: unknown }).response ?? "")

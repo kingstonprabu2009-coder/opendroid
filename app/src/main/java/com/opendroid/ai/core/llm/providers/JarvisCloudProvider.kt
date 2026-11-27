@@ -69,8 +69,8 @@ class JarvisCloudProvider @Inject constructor(
             if (content.isBlank()) throw IOException("JARVIS Cloud returned an empty response.")
             LLMResponse(
                 content = content,
-                tokensUsed = parsed.usage?.total_tokens ?: 0,
-                model = parsed.model ?: "jarvis-cloud",
+                tokensUsed = parsed?.usage?.total_tokens ?: 0,
+                model = parsed?.model ?: "jarvis-cloud",
                 provider = name,
                 latencyMs = System.currentTimeMillis() - started
             )

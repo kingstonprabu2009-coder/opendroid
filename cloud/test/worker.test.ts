@@ -1,6 +1,27 @@
 import { describe, expect, it } from "vitest";
-import worker, { hashInvitationToken, isValidInviteEmail, resolvePlatformRole } from "../src/index";
+import worker, { hashInvitationToken, isValidInviteEmail, resolvePlatformRole, shouldEnableThinking } from "../src/index";
 const env = { DB: {} as D1Database, JARVIS_ENV: "test", ALLOWED_ORIGIN: "http://localhost:8080" };
+
+describe("JARVIS adaptive reasoning mode", () => {
+  it("keeps ordinary short chat in fast mode", () => {
+    expect(shouldEnableThinking("", "Hi JARVIS")).toBe(false);
+  });
+
+  it("enables deeper reasoning for complex coding and analysis requests", () => {
+    expect(shouldEnableThinking("", "Debug this Kotlin crash, identify the root cause, and refactor the affected code safely.")).toBe(true);
+    expect(shouldEnableThinking("", "Compare these two architectures and explain the trade-offs.")).toBe(true);
+  });
+
+  it("always enables deeper reasoning for planner, critic, and merger tasks", () => {
+    expect(shouldEnableThinking("JARVIS Planning Engine: return plan JSON", "Open settings")).toBe(true);
+    expect(shouldEnableThinking("Safety and Security Critic", "Send this message")).toBe(true);
+  });
+
+  it("enables deeper reasoning for long user requests", () => {
+    expect(shouldEnableThinking("", "x".repeat(1201))).toBe(true);
+  });
+});
+
 describe("JARVIS single-owner platform roles", () => {
   it("grants Owner only to the configured verified email", () => {
     expect(resolvePlatformRole(

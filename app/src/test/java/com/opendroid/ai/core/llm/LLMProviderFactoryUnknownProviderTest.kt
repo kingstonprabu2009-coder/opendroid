@@ -139,6 +139,7 @@ class LLMProviderFactoryUnknownProviderTest {
                 geminiRequests++
                 throw AssertionError("Gemini must not be used for an unknown provider")
             },
+            jarvisCloudProvider = unused("JARVIS Cloud"),
             mistralProvider = unused("Mistral"),
             groqProvider = unused("Groq"),
             ollamaProvider = unused("Ollama"),

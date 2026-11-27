@@ -80,7 +80,9 @@ class PlanningRequestRewriterTest {
             )
         )
 
-        assertTrue(prompt.contains("SECTION A: IDENTITY & ROLE"))
+        assertTrue(prompt.contains("SECTION A: IDENTITY, REASONING & ROLE"))
+        assertTrue(prompt.contains("REASONING WORKFLOW"))
+        assertTrue(prompt.contains("TRUST & SAFETY RULES"))
         assertTrue(prompt.contains("User Memory Context: likes tea\n"))
     }
 

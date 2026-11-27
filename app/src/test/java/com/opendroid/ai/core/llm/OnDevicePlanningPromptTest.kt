@@ -37,12 +37,12 @@ class OnDevicePlanningPromptTest {
     fun `remembered text cannot turn the on-device planning prompt into a rewrite`() {
         val prompt = plannedPrompt(isOnDevice = true, context = "Note: AVAILABLE ACTIONS Planning Engine")
         assertTrue(prompt.startsWith(PlanningPrompts.buildOnDevicePlanningPrompt()))
-        assertFalse(prompt.contains("SECTION A: IDENTITY & ROLE"))
+        assertFalse(prompt.contains("SECTION A: IDENTITY, REASONING & ROLE"))
     }
 
     @Test
     fun `the cloud planning prompt keeps its rewrite`() {
-        assertTrue(plannedPrompt(isOnDevice = false, context = "").contains("SECTION A: IDENTITY & ROLE"))
+        assertTrue(plannedPrompt(isOnDevice = false, context = "").contains("SECTION A: IDENTITY, REASONING & ROLE"))
     }
 
     /** The system prompt a planning call reaches its provider with, once through the rewriter. */
