@@ -500,6 +500,26 @@ fun JarvisHomeScreen(
                                 val ringRadius = 150.dp.toPx()
                                 drawCircle(color = ringColor, radius = ringRadius, style = Stroke(width = 1.dp.toPx()))
                                 drawCircle(color = ringColor.copy(alpha = ringColor.alpha * 0.55f), radius = 166.dp.toPx(), style = Stroke(width = 0.7.dp.toPx()))
+                                // Layered HUD arcs add a premium, futuristic instrument-panel effect.
+                                val hudRadius = 142.dp.toPx()
+                                drawArc(
+                                    color = glowColor.copy(alpha = if (speaking) 0.9f else ringColor.alpha),
+                                    startAngle = orbitAngle - 28f,
+                                    sweepAngle = 76f,
+                                    useCenter = false,
+                                    topLeft = Offset(center.x - hudRadius, center.y - hudRadius),
+                                    size = androidx.compose.ui.geometry.Size(hudRadius * 2f, hudRadius * 2f),
+                                    style = Stroke(width = 2.2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                )
+                                drawArc(
+                                    color = orbitPurple.copy(alpha = if (speaking) 0.72f else 0.22f),
+                                    startAngle = -orbitAngle * 0.72f + 142f,
+                                    sweepAngle = 38f,
+                                    useCenter = false,
+                                    topLeft = Offset(center.x - 160.dp.toPx(), center.y - 160.dp.toPx()),
+                                    size = androidx.compose.ui.geometry.Size(320.dp.toPx(), 320.dp.toPx()),
+                                    style = Stroke(width = 1.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                )
                                 val angle = Math.toRadians(orbitAngle.toDouble())
                                 val dotX = center.x + kotlin.math.cos(angle).toFloat() * ringRadius
                                 val dotY = center.y + kotlin.math.sin(angle).toFloat() * ringRadius
@@ -672,20 +692,40 @@ private fun VoiceStateVisualizer(
         label = "voiceVisualizerPhase"
     )
     Canvas(modifier = modifier.height(34.dp)) {
-        val count = 31
+        val count = 37
         val barWidth = 3.dp.toPx()
         val gap = (size.width - count * barWidth) / (count - 1)
         val centerY = size.height / 2f
         for (i in 0 until count) {
-            val wave = (sin(phase + i * 0.43f) + 1f) / 2f
-            val envelope = (0.22f + wave * if (active) 0.78f else 0.28f)
-            val barHeight = size.height * envelope * (if (active) 0.92f else 0.48f)
+            val position = i / (count - 1f)
+            val centerEnvelope = (1f - kotlin.math.abs(position - 0.5f) * 1.75f).coerceIn(0f, 1f)
+            val waveA = (sin(phase + i * 0.43f) + 1f) / 2f
+            val waveB = (sin(phase * 1.7f - i * 0.21f) + 1f) / 2f
+            val energy = waveA * 0.68f + waveB * 0.32f
+            val envelope = if (active) (0.12f + energy * 0.88f) * (0.24f + centerEnvelope * 0.76f) else 0.22f
+            val barHeight = size.height * envelope * (if (active) 0.96f else 0.38f)
+            val x = i * (barWidth + gap)
             drawRoundRect(
-                color = color.copy(alpha = if (active) 0.9f else 0.38f),
-                topLeft = Offset(i * (barWidth + gap), centerY - barHeight / 2f),
+                brush = Brush.verticalGradient(
+                    colors = listOf(
+                        color.copy(alpha = if (active) 0.42f else 0.16f),
+                        color.copy(alpha = if (active) 1f else 0.38f),
+                        color.copy(alpha = if (active) 0.52f else 0.18f)
+                    ),
+                    startY = centerY - barHeight / 2f,
+                    endY = centerY + barHeight / 2f
+                ),
+                topLeft = Offset(x, centerY - barHeight / 2f),
                 size = androidx.compose.ui.geometry.Size(barWidth, barHeight),
                 cornerRadius = androidx.compose.ui.geometry.CornerRadius(barWidth, barWidth)
             )
+            if (active && i % 4 == 0) {
+                drawCircle(
+                    color = color.copy(alpha = 0.72f),
+                    radius = 1.2.dp.toPx(),
+                    center = Offset(x + barWidth / 2f, centerY - barHeight / 2f - 3.dp.toPx())
+                )
+            }
         }
     }
 }

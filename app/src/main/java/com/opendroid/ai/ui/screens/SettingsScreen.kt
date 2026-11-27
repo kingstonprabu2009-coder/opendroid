@@ -339,13 +339,35 @@ fun SettingsScreen(
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation()
                             )
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = viewModel::signInToJarvisCloud, enabled = jarvisAccountStatus != "Signing in...") {
+                            Text(
+                                text = "New to JARVIS Cloud? Create an account with your email and a password of at least 12 characters.",
+                                fontSize = 11.sp,
+                                color = TextSecondary
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Button(
+                                    onClick = viewModel::signInToJarvisCloud,
+                                    enabled = jarvisAccountStatus != "Signing in..." && jarvisAccountStatus != "Creating account...",
+                                    modifier = Modifier.weight(1f)
+                                ) {
                                     Text("Sign in")
                                 }
-                                OutlinedButton(onClick = viewModel::signOutFromJarvisCloud) {
-                                    Text("Sign out")
+                                OutlinedButton(
+                                    onClick = viewModel::createJarvisCloudAccount,
+                                    enabled = jarvisAccountStatus != "Signing in..." && jarvisAccountStatus != "Creating account...",
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text("Create Account")
                                 }
+                            }
+                            OutlinedButton(
+                                onClick = viewModel::signOutFromJarvisCloud,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Sign out")
                             }
                         }
                     }

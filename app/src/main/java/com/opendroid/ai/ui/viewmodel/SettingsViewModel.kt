@@ -252,6 +252,32 @@ class SettingsViewModel @Inject constructor(
     fun updateJarvisEmail(value: String) { _jarvisEmail.value = value }
     fun updateJarvisPassword(value: String) { _jarvisPassword.value = value }
 
+    fun createJarvisCloudAccount() {
+        val email = _jarvisEmail.value
+        val password = _jarvisPassword.value
+        if (!jarvisCloudConfigured) {
+            _jarvisAccountStatus.value = "Cloud endpoint not configured in this build"
+            return
+        }
+        if (email.isBlank() || password.length < 12) {
+            _jarvisAccountStatus.value = "Enter your email and a password with at least 12 characters."
+            return
+        }
+        _jarvisAccountStatus.value = "Creating account..."
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                jarvisCloudSession.signUp(BuildConfig.JARVIS_CLOUD_BASE_URL, email, password)
+            }.onSuccess {
+                _jarvisPassword.value = ""
+                _jarvisAccountStatus.value = "Signed in"
+                refreshPlatformAccess()
+                refreshTeams()
+            }.onFailure {
+                _jarvisAccountStatus.value = it.message?.take(180) ?: "Account creation failed"
+            }
+        }
+    }
+
     fun signInToJarvisCloud() {
         val email = _jarvisEmail.value
         val password = _jarvisPassword.value

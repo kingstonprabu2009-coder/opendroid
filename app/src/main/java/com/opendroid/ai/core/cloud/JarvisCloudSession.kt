@@ -31,6 +31,25 @@ class JarvisCloudSession @Inject constructor(
 
     fun authenticatedClient(): OkHttpClient = client
 
+    suspend fun signUp(baseUrl: String, email: String, password: String) = withContext(Dispatchers.IO) {
+        val root = normalizeBaseUrl(baseUrl)
+        require(email.isNotBlank() && password.length >= 12) {
+            "Enter a valid email and a password with at least 12 characters."
+        }
+        require(password.length <= 128) { "Password must be 128 characters or fewer." }
+        val body = gson.toJson(
+            mapOf("name" to "JARVIS User", "email" to email.trim(), "password" to password)
+        ).toRequestBody(jsonType)
+        val request = Request.Builder().url(root + "api/auth/sign-up/email").post(body).build()
+        client.newCall(request).execute().use { response ->
+            if (!response.isSuccessful) {
+                val detail = response.body.string().take(240)
+                throw IOException("JARVIS account creation failed (HTTP ${response.code}): ${detail.ifBlank { response.message }}")
+            }
+        }
+        if (!verifySession(root)) throw IOException("Account created, but no active JARVIS session was returned. Try signing in.")
+    }
+
     suspend fun signIn(baseUrl: String, email: String, password: String) = withContext(Dispatchers.IO) {
         val root = normalizeBaseUrl(baseUrl)
         require(email.isNotBlank() && password.isNotEmpty()) { "Email and password are required." }
