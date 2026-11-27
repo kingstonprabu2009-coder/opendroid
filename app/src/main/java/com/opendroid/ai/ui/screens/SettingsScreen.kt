@@ -65,6 +65,11 @@ import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.ui.platform.LocalContext
 import android.content.Context
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import com.opendroid.ai.core.voice.EdgeTtsClient
+import okhttp3.OkHttpClient
+import java.io.File
 import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1996,7 +2001,6 @@ fun SettingsScreen(
                             ) {
                                 val voiceCtx = androidx.compose.ui.platform.LocalContext.current
                                 val voicePrefs = remember { voiceCtx.getSharedPreferences("jarvis_voice", android.content.Context.MODE_PRIVATE) }
-                                var voiceGender by remember { mutableStateOf(voicePrefs.getString("gender", "male") ?: "male") }
                                 var liveOn by remember { mutableStateOf(voicePrefs.getBoolean("live_gemini", false)) }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
@@ -2039,36 +2043,80 @@ fun SettingsScreen(
                                         voicePrefs.edit().putBoolean("barge_in", it).apply()
                                     })
                                 }
-                                Text("Jarvis voice", fontSize = 12.sp, color = TextSecondary)
-                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    listOf("male" to "Male", "female" to "Female", "phone" to "Phone").forEach { (key, label) ->
-                                        if (voiceGender == key) {
-                                            Button(onClick = {}) { Text(label) }
-                                        } else {
-                                            OutlinedButton(onClick = {
-                                                voiceGender = key
-                                                voicePrefs.edit().putString("gender", key).apply()
-                                            }) { Text(label) }
-                                        }
+                                Text("Voice engine", fontSize = 12.sp, color = TextSecondary)
+                                var voiceProvider by remember { mutableStateOf(voicePrefs.getString("provider", "edge") ?: "edge") }
+                                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    listOf("edge" to "Edge Neural · No API key", "phone" to "Phone TTS", "elevenlabs" to "ElevenLabs").forEach { (key, label) ->
+                                        if (voiceProvider == key) Button(onClick = {}) { Text(label, fontSize = 10.sp) }
+                                        else OutlinedButton(onClick = { voiceProvider = key; voicePrefs.edit().putString("provider", key).apply() }) { Text(label, fontSize = 10.sp) }
                                     }
                                 }
+                                val tamilVoices = listOf(
+                                    "ta-IN-ValluvarNeural" to "Valluvar · India · Male",
+                                    "ta-IN-PallaviNeural" to "Pallavi · India · Female",
+                                    "ta-LK-KumarNeural" to "Kumar · Sri Lanka · Male",
+                                    "ta-LK-SaranyaNeural" to "Saranya · Sri Lanka · Female",
+                                    "ta-MY-SuryaNeural" to "Surya · Malaysia · Male",
+                                    "ta-MY-KaniNeural" to "Kani · Malaysia · Female",
+                                    "ta-SG-AnbuNeural" to "Anbu · Singapore · Male",
+                                    "ta-SG-VenbaNeural" to "Venba · Singapore · Female",
+                                    "ta-IN-ValluvarNeural|soft" to "Valluvar · Soft pitch style",
+                                    "ta-IN-PallaviNeural|bright" to "Pallavi · Bright pitch style"
+                                )
+                                var selectedEdgeVoice by remember { mutableStateOf(voicePrefs.getString("edge_voice", "ta-IN-ValluvarNeural") ?: "ta-IN-ValluvarNeural") }
+                                var voiceMenu by remember { mutableStateOf(false) }
+                                Text("Tamil neural voice · 10 selectable profiles", fontSize = 12.sp, color = TextSecondary)
+                                Box {
+                                    OutlinedButton(onClick = { voiceMenu = true }, modifier = Modifier.fillMaxWidth()) {
+                                        Text(tamilVoices.firstOrNull { it.first == selectedEdgeVoice }?.second ?: "Choose Tamil voice")
+                                    }
+                                    DropdownMenu(expanded = voiceMenu, onDismissRequest = { voiceMenu = false }) {
+                                        tamilVoices.forEach { (id, label) -> DropdownMenuItem(text = { Text(label) }, onClick = {
+                                            selectedEdgeVoice = id
+                                            voicePrefs.edit().putString("edge_voice", id).putString("provider", "edge").apply()
+                                            voiceProvider = "edge"
+                                            voiceMenu = false
+                                        }) }
+                                    }
+                                }
+                                Text("Edge Neural uses online synthesis; it does not use the phone's Google voice. The two pitch profiles are voice-style adjustments, not separate child voices.", fontSize = 10.sp, color = TextSecondary)
                                 OutlinedButton(onClick = {
+                                    coroutineScope.launch {
+                                        val profile = selectedEdgeVoice
+                                        val voiceId = profile.substringBefore('|')
+                                        val pitch = when (profile.substringAfter('|', "")) { "soft" -> "-2Hz"; "bright" -> "+2Hz"; else -> "+0Hz" }
+                                        val sample = File.createTempFile("jarvis_voice_test_", ".mp3", voiceCtx.cacheDir)
+                                        val ok = withContext(Dispatchers.IO) {
+                                            EdgeTtsClient(OkHttpClient.Builder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build())
+                                                .synthesize("வணக்கம், நான் ஜார்விஸ். இது நீங்கள் தேர்ந்தெடுத்த குரல் சோதனை.", voiceId, sample, pitch)
+                                        }
+                                        if (ok) {
+                                            runCatching {
+                                                android.media.MediaPlayer().apply {
+                                                    setDataSource(sample.absolutePath)
+                                                    setOnCompletionListener { it.release(); sample.delete() }
+                                                    setOnErrorListener { player, _, _ -> player.release(); sample.delete(); true }
+                                                    setOnPreparedListener { it.start() }
+                                                    prepareAsync()
+                                                }
+                                            }.onFailure { sample.delete() }
+                                        } else {
+                                            sample.delete()
+                                            android.widget.Toast.makeText(voiceCtx, "Selected Edge voice unavailable. Check internet.", android.widget.Toast.LENGTH_LONG).show()
+                                        }
+                                    }
+                                }) { Text("Test selected Tamil voice") }
+                                OutlinedButton(onClick = {
+                                    voicePrefs.edit().putString("provider", voiceProvider).apply()
                                     var t: android.speech.tts.TextToSpeech? = null
                                     t = android.speech.tts.TextToSpeech(voiceCtx) { st ->
                                         val e = t
                                         if (st == android.speech.tts.TextToSpeech.SUCCESS && e != null) {
-                                            e.setLanguage(java.util.Locale.forLanguageTag("en-IN"))
-                                            val vs = try { e.voices?.filter { it.locale.language == "en" } } catch (x: Exception) { null }
-                                            val pick = when (voiceGender) {
-                                                "male" -> vs?.firstOrNull { it.name.contains("male", true) && !it.name.contains("female", true) }
-                                                "female" -> vs?.firstOrNull { it.name.contains("female", true) }
-                                                else -> null
-                                            }
-                                            if (pick != null) e.setVoice(pick)
-                                                                                        e.speak("Vanakkam sir, naan Jarvis. Intha voice ok va?", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "t")
+                                            e.language = java.util.Locale.forLanguageTag("ta-IN")
+                                            e.speak("வணக்கம், நான் ஜார்விஸ். இது தேர்ந்தெடுத்த குரல் சோதனை.", android.speech.tts.TextToSpeech.QUEUE_FLUSH, null, "jarvis_voice_test")
                                         }
                                     }
-                                }) { Text("Test voice") }
+                                }) { Text("Test phone voice") }
                                 listOf("ta" to "Tamil", "en" to "English").forEach { (lang, label) ->
                                     OutlinedButton(onClick = {
                                         var t: android.speech.tts.TextToSpeech? = null

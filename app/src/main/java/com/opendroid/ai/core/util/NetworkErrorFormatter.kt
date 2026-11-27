@@ -31,11 +31,27 @@ object NetworkErrorFormatter {
             lower.contains("unable to resolve host") ||
                 lower.contains("no address associated with hostname") ||
                 lower.contains("network is unreachable") ||
-                lower.contains("failed to connect") && lower.contains("enetunreach") ->
-                "No internet connection. Check your network and try again."
+                lower.contains("enetunreach") || lower.contains("failed to connect") ||
+                lower.contains("connection reset") || lower.contains("socketexception") ->
+                "JARVIS Cloud network connection failed. Check your internet and try again."
 
             lower.contains("timeout") || lower.contains("timed out") ->
-                "The request timed out. Check your connection and try again."
+                "JARVIS Cloud took too long to respond. Check your connection and retry."
+
+            lower.contains("http 401") || lower.contains("unauthorized") || lower.contains("sign in") ->
+                "JARVIS Cloud sign-in required. Sign in to your JARVIS account and try again."
+
+            lower.contains("http 403") || lower.contains("forbidden") ->
+                "JARVIS Cloud access was denied. Check your account access."
+
+            lower.contains("http 429") || lower.contains("rate limit") || lower.contains("too many requests") ->
+                "JARVIS Cloud is busy right now. Wait a moment and retry."
+
+            lower.contains("http 5") || lower.contains("server error") || lower.contains("service unavailable") ->
+                "JARVIS Cloud server is temporarily unavailable. Try again shortly."
+
+            lower.contains("empty response") || lower.contains("malformed") || lower.contains("unreadable") ->
+                "JARVIS Cloud returned an invalid response. Please retry."
 
             lower.contains("10.0.2.2") || lower.contains("connection refused") ->
                 "Can't reach the configured server. Check your provider settings."

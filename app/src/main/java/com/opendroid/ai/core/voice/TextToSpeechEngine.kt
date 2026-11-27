@@ -34,6 +34,7 @@ class TextToSpeechEngine(
 ) : TextToSpeech.OnInitListener {
 
     private var tts: TextToSpeech? = null
+    private val edgeTts = EdgeTtsClient(OkHttpClient.Builder().callTimeout(12, java.util.concurrent.TimeUnit.SECONDS).build())
     private var isInitialized = false
     // Completes when the phone's TTS engine has finished starting (it takes a moment).
     private val ready = CompletableDeferred<Unit>()
@@ -124,7 +125,10 @@ class TextToSpeechEngine(
     /** Tamil-script text and recognized Tanglish use the Tamil voice; English uses Indian English. */
     private fun hasTamil(text: String): Boolean = text.any { it in '\u0B80'..'\u0BFF' }
 
-    /** Voice choice saved by Settings: "male", "female" or "phone". */
+    /** Legacy local-phone voice preference; provider selection is stored separately. */
+    private fun voiceProvider(): String =
+        context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("provider", "edge") ?: "edge"
+
     private fun voiceChoice(): String =
         context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("gender", "male") ?: "male"
 
@@ -196,17 +200,41 @@ class TextToSpeechEngine(
             staleClipCleanup.join()
             val config = settingsRepository.llmConfig.first()
             val apiKey = config.elevenLabsApiKey
-            val voiceId = config.elevenLabsVoiceId.ifEmpty { "pNInz6obpgDQGcFmaJgB" } // default Adam (male) voice
+            val voiceId = config.elevenLabsVoiceId.ifEmpty { "pNInz6obpgDQGcFmaJgB" }
+            val provider = voiceProvider()
 
-            if (apiKey.isNotEmpty()) {
+            if (provider == "elevenlabs" && apiKey.isBlank()) {
+                showProblem("ElevenLabs select pannirukkinga, aana API key set pannala. Voice settings-la Edge Neural or Phone TTS choose pannunga.")
+                mainHandler.post { onCompletionListener?.invoke(utteranceId) }
+                return@launch
+            }
+
+            if (provider == "edge") {
+                try {
+                    val edgeVoice = selectedEdgeVoice(localSpeechText)
+                    val success = playEdgeTts(localSpeechText, edgeVoice, utteranceId, speechGeneration)
+                    if (success) return@launch
+                } catch (_: Exception) { }
+                if (generation.get() == speechGeneration) {
+                    showProblem("Selected Edge Neural voice connect aagala. Internet check pannitu voice settings-la Phone TTS select pannunga.")
+                    mainHandler.post { onCompletionListener?.invoke(utteranceId) }
+                }
+                return@launch
+            }
+
+            if (provider == "elevenlabs" && apiKey.isNotEmpty()) {
                 try {
                     val success = playElevenLabsTts(text, apiKey, voiceId, utteranceId, speechGeneration)
                     if (success) return@launch
-                } catch (e: Exception) {
-                    // Fallback to local TTS if ElevenLabs fails
+                    showProblem("Selected ElevenLabs voice could not generate audio. Check its key and Voice ID, or choose another voice engine.")
+                } catch (_: Exception) {
+                    showProblem("Selected ElevenLabs voice failed. Check the key and connection, or choose another voice engine.")
                 }
+                mainHandler.post { onCompletionListener?.invoke(utteranceId) }
+                return@launch
             }
 
+            // Phone TTS is used only when the user explicitly selects it.
             // Local fallback — must run on main thread. Not after stop(): a cancelled
             // ElevenLabs fetch fails, and must not turn into local speech.
             // The first reply often arrives before the engine is ready, so wait for it.
@@ -240,6 +268,50 @@ class TextToSpeechEngine(
             }
         }
         return utteranceId
+    }
+
+    private data class EdgeVoiceChoice(val id: String, val pitch: String = "+0Hz", val rate: String = "+0%")
+
+    private fun selectedEdgeVoice(text: String): EdgeVoiceChoice {
+        val prefs = context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE)
+        val chosenProfile = prefs.getString("edge_voice", "ta-IN-ValluvarNeural") ?: "ta-IN-ValluvarNeural"
+        val chosen = chosenProfile.substringBefore('|')
+        val pitch = when (chosenProfile.substringAfter('|', "")) {
+            "soft" -> "-2Hz"
+            "bright" -> "+2Hz"
+            else -> prefs.getString("edge_pitch", "+0Hz") ?: "+0Hz"
+        }
+        val rate = prefs.getString("edge_rate", "+0%") ?: "+0%"
+        val voice = if (hasTamil(text)) chosen else when (chosen) {
+            "ta-IN-PallaviNeural", "ta-LK-SaranyaNeural", "ta-MY-KaniNeural", "ta-SG-VenbaNeural" -> "en-IN-NeerjaNeural"
+            else -> "en-IN-PrabhatNeural"
+        }
+        return EdgeVoiceChoice(voice, pitch, rate)
+    }
+
+    private fun playEdgeTts(text: String, voice: EdgeVoiceChoice, utteranceId: String, speechGeneration: Long): Boolean {
+        if (generation.get() != speechGeneration) return true
+        val clip = File.createTempFile("edge_tts_", ".mp3", context.cacheDir)
+        if (!edgeTts.synthesize(text, voice.id, clip, voice.pitch, voice.rate)) { clip.delete(); return false }
+        synchronized(playerLock) {
+            if (generation.get() != speechGeneration) { clip.delete(); return true }
+            releasePlayerLocked()
+            val player = MediaPlayer()
+            mediaPlayer = player
+            currentClip = clip
+            try {
+                player.setDataSource(clip.absolutePath)
+                player.prepare()
+                player.setOnCompletionListener { finishClip(player, utteranceId) }
+                player.setOnErrorListener { _, _, _ -> finishClip(player, utteranceId); true }
+                player.start()
+                mainHandler.post { onStartListener?.invoke(utteranceId) }
+            } catch (e: Exception) {
+                releasePlayerLocked()
+                throw e
+            }
+        }
+        return true
     }
 
     private fun playElevenLabsTts(
@@ -368,6 +440,7 @@ class TextToSpeechEngine(
     fun stop() {
         generation.incrementAndGet()
         inFlightCall?.cancel()
+        edgeTts.cancel()
         scope.coroutineContext.cancelChildren()
         tts?.stop()
         synchronized(playerLock) { releasePlayerLocked() }
@@ -376,6 +449,7 @@ class TextToSpeechEngine(
     fun destroy() {
         generation.incrementAndGet()
         inFlightCall?.cancel()
+        edgeTts.cancel()
         scope.cancel()
         tts?.shutdown()
         tts = null

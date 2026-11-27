@@ -8,6 +8,10 @@ import kotlinx.coroutines.CancellationException
 import java.io.IOException
 import java.net.ConnectException
 import java.net.SocketTimeoutException
+import java.net.SocketException
+import java.net.InetSocketAddress
+import java.io.InterruptedIOException
+import javax.net.ssl.SSLException
 import java.net.UnknownHostException
 import java.time.ZonedDateTime
 import java.time.format.DateTimeFormatter
@@ -185,7 +189,15 @@ object LLMErrorMapper {
         val isNetwork = throwable is SocketTimeoutException ||
             throwable is ConnectException ||
             throwable is UnknownHostException ||
-            throwable is IOException
+            throwable is SocketException ||
+            throwable is InterruptedIOException ||
+            throwable is SSLException ||
+            (throwable is IOException && (
+                safeMessage.contains("unable to resolve host", ignoreCase = true) ||
+                    safeMessage.contains("network is unreachable", ignoreCase = true) ||
+                    safeMessage.contains("connection reset", ignoreCase = true) ||
+                    safeMessage.contains("failed to connect", ignoreCase = true)
+            ))
         // Only connect-phase failures are safe to retry: once the request may
         // have reached the server, re-POSTing risks duplicate processing.
         val isConnectFailure = throwable is ConnectException ||

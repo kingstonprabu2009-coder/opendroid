@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Free Microsoft Edge "read aloud" neural voices (unofficial, no key, no credits).
- * Used for the male Jarvis voice: ta-IN-ValluvarNeural for Tamil, en-IN-PrabhatNeural for English, etc.
+ * Used when Edge Neural is explicitly selected in Settings. Voice IDs are selected per utterance.
  * Microsoft can change or block this service at any time, so callers must keep a fallback.
  */
 class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
@@ -36,7 +36,7 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
      * Writes an MP3 of [text] spoken by [voice] to [target].
      * Blocks the calling thread (up to ~20 seconds). Returns false on any failure.
      */
-    fun synthesize(text: String, voice: String, target: File): Boolean {
+    fun synthesize(text: String, voice: String, target: File, pitch: String = "+0Hz", rate: String = "+0%"): Boolean {
         val done = CountDownLatch(1)
         val finished = AtomicBoolean(false)
         val out = FileOutputStream(target)
@@ -72,8 +72,8 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
                     )
                     val requestId = UUID.randomUUID().toString().replace("-", "")
                     val ssml = "<speak version='1.0' xmlns='http://www.w3.org/2001/10/synthesis' " +
-                        "xml:lang='en-US'><voice name='$voice'>" +
-                        "<prosody pitch='+0Hz' rate='+0%' volume='+0%'>${escapeXml(text)}</prosody>" +
+                        "xml:lang='${voice.substringBeforeLast('-')}'><voice name='$voice'>" +
+                        "<prosody pitch='$pitch' rate='$rate' volume='+0%'>${escapeXml(text)}</prosody>" +
                         "</voice></speak>"
                     webSocket.send(
                         "X-RequestId:$requestId\r\nContent-Type:application/ssml+xml\r\n" +

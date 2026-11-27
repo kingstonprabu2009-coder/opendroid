@@ -916,7 +916,7 @@ class AgentLoop @Inject constructor(
 
                 LANGUAGE:
                 - Reply naturally in the language the user is using.
-                - If the user writes Tamil in Latin letters (Thunglish), reply in Thunglish by default.
+                - If the user writes or speaks Tamil in Latin letters (Thunglish), reply in Thunglish using English/Roman letters only. Do not switch to Tamil script unless explicitly requested.
                 - If the user writes English, reply in English. If they explicitly request another language or Tamil script, follow that request.
                 - Do not force honorifics, names, or a fixed catchphrase.
 

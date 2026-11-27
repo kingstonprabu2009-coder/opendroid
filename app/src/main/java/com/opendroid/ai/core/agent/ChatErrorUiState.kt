@@ -88,13 +88,13 @@ fun ChatErrorUiState.primaryAction(): ChatErrorPrimaryAction = when (category) {
 }
 
 fun ChatErrorUiState.title(): String = when (category) {
-    LLMError.AuthMissing -> "Set up $provider to continue"
-    LLMError.AuthInvalid -> "$provider rejected the API key"
+    LLMError.AuthMissing -> if (provider == "JARVIS Cloud") "Sign in to JARVIS Cloud" else "Set up $provider to continue"
+    LLMError.AuthInvalid -> if (provider == "JARVIS Cloud") "JARVIS Cloud access was denied" else "$provider rejected the API key"
     LLMError.QuotaExhausted -> "$provider has no credits available"
     LLMError.RateLimited -> "$provider rate limited the request"
     LLMError.ModelUnavailable -> "Model unavailable on $provider"
     LLMError.RequestInvalid -> "Request rejected by $provider"
-    LLMError.Network -> "Can't reach $provider"
+    LLMError.Network -> "Network connection problem"
     LLMError.ServerError -> "$provider had a server error"
     LLMError.MalformedResponse -> "$provider returned an unreadable response"
     LLMError.SafeFallbackUnavailable -> "No safe fallback is configured for $provider"
@@ -103,13 +103,13 @@ fun ChatErrorUiState.title(): String = when (category) {
 }
 
 fun ChatErrorUiState.guidance(): String = when (category) {
-    LLMError.AuthMissing -> "Add an API key in Settings."
-    LLMError.AuthInvalid -> "Check or replace the key in Settings."
+    LLMError.AuthMissing -> if (provider == "JARVIS Cloud") "Sign in to your JARVIS Cloud account, then retry." else "Add an API key in Settings."
+    LLMError.AuthInvalid -> if (provider == "JARVIS Cloud") "Check whether your JARVIS account has access to this cloud service." else "Check or replace the key in Settings."
     LLMError.QuotaExhausted -> "Add credits with $provider, or choose another provider."
     LLMError.RateLimited -> "Wait a moment, then retry."
     LLMError.ModelUnavailable -> "Choose an available model, then retry."
     LLMError.RequestInvalid -> "Edit the message and try again."
-    LLMError.Network -> "Check your connection and try again."
+    LLMError.Network -> "JARVIS Cloud could not connect. Check internet and retry."
     LLMError.ServerError -> "Try again in a moment."
     LLMError.MalformedResponse -> "Try again, or check technical details."
     LLMError.SafeFallbackUnavailable -> "Choose and configure an explicit fallback provider, then retry."

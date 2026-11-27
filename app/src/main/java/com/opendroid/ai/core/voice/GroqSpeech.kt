@@ -56,7 +56,11 @@ class GroqSpeech(
     }
 
     /** Rewrites [raw] in Roman letters and fixes obvious mis-hearings. Returns [raw] on failure. */
-    suspend fun toTanglish(apiKey: String, raw: String): String = withContext(Dispatchers.IO) {
+    suspend fun toTanglish(apiKey: String, raw: String): String {
+        // Whisper sometimes already returns Roman Tanglish. Avoid a second LLM
+        // round-trip in that common case so JARVIS can answer sooner.
+        if (raw.none { it in '\u0B80'..'\u0BFF' }) return raw
+        return withContext(Dispatchers.IO) {
         try {
             val system = "You fix speech-to-text output of a Tamil user talking to a phone assistant. " +
                 "Rewrite the sentence in Tanglish (Tamil written in English letters). Keep English words " +
@@ -88,6 +92,7 @@ class GroqSpeech(
             }
         } catch (e: Exception) {
             raw
+        }
         }
     }
 
@@ -148,9 +153,13 @@ class GroqSpeech(
                 // Quietest early frame = room noise, even if the user starts talking at once.
                 if (index < 5) noise = minOf(noise, level)
                 val threshold = (noise * 2.5).coerceIn(350.0, 1800.0)
-                val bytes = ByteBuffer.allocate(read * 2).order(ByteOrder.LITTLE_ENDIAN)
-                for (i in 0 until read) bytes.putShort(frame[i])
-                audio.write(bytes.array())
+                val pcmBytes = ByteArray(read * 2)
+                for (i in 0 until read) {
+                    val sample = frame[i].toInt()
+                    pcmBytes[i * 2] = sample.toByte()
+                    pcmBytes[i * 2 + 1] = (sample shr 8).toByte()
+                }
+                audio.write(pcmBytes)
                 if (level > threshold) {
                     loudFrames++
                     silentFrames = 0
@@ -187,6 +196,6 @@ class GroqSpeech(
         const val FRAME = 1600
         const val MAX_FRAMES = 300          // 30 s
         const val START_TIMEOUT_FRAMES = 60 // 6 s without speech
-        const val END_SILENCE_FRAMES = 9    // 0.9 s pause ends the sentence, so Jarvis answers sooner
+        const val END_SILENCE_FRAMES = 7    // 0.7 s pause: faster response without cutting normal short pauses
     }
 }

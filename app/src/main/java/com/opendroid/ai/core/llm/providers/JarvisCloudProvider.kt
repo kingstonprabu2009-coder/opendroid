@@ -6,6 +6,8 @@ import com.opendroid.ai.core.cloud.JarvisCloudSession
 import com.opendroid.ai.core.llm.LLMProvider
 import com.opendroid.ai.core.llm.LLMRequest
 import com.opendroid.ai.core.llm.LLMResponse
+import com.opendroid.ai.core.llm.error.LLMError
+import com.opendroid.ai.core.llm.error.LLMException
 import com.opendroid.ai.data.models.ChatMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -67,14 +69,29 @@ class JarvisCloudProvider @Inject constructor(
         val started = System.currentTimeMillis()
         session.authenticatedClient().newCall(httpRequest).execute().use { response ->
             val body = response.body.string()
-            if (response.code == 401) throw IOException("Sign in to your JARVIS Cloud account first.")
+            if (response.code == 401) throw LLMException(
+                error = LLMError.AuthMissing, provider = name, model = "jarvis-cloud", status = 401
+            )
             if (!response.isSuccessful) {
                 val errorFields = runCatching {
                     gson.fromJson(body, Map::class.java)
                 }.getOrNull()
                 val detail = errorFields?.get("message")?.toString()?.takeIf { it.isNotBlank() }
                     ?: errorFields?.get("error")?.toString()?.takeIf { it.isNotBlank() }
-                throw IOException("JARVIS Cloud request failed (HTTP ${response.code}): ${detail ?: response.message}")
+                val statusError = when {
+                    response.code == 403 -> LLMError.AuthInvalid
+                    response.code == 429 -> LLMError.RateLimited
+                    response.code >= 500 -> LLMError.ServerError
+                    response.code in 400..499 -> LLMError.RequestInvalid
+                    else -> LLMError.Unknown
+                }
+                throw LLMException(
+                    error = statusError,
+                    provider = name,
+                    model = "jarvis-cloud",
+                    status = response.code,
+                    retryable = response.code == 429 || response.code >= 500
+                )
             }
             val parsed = runCatching { gson.fromJson(body, GatewayResponse::class.java) }.getOrNull()
             val content = parsed?.choices?.firstOrNull()?.message?.content?.trim().orEmpty()
