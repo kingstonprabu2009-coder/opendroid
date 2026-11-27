@@ -241,7 +241,8 @@ class ChatViewModelTaskAttributionTest {
 
         viewModel.retryAfterChatError(context)
 
-        assertEquals(listOf("msg-1" to chatA), agent.retried)
+        // retryAfterChatError resolves the session's team asynchronously before retrying.
+        await("request retry dispatched") { agent.retried == listOf("msg-1" to chatA) }
         assertEquals(emptyList<Pair<String, String>>(), agent.resumed)
     }
 
