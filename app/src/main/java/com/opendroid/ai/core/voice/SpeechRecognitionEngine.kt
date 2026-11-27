@@ -104,8 +104,29 @@ class SpeechRecognitionEngine(private val context: Context) {
             override fun onEndOfSpeech() {}
 
             override fun onError(error: Int) {
-                unmuteBeep()
                 if (sessionId != activeSessionId) return
+                // Some devices expose an offline recognizer but do not have Tamil data.
+                // Retry this session once with Android's standard recognizer instead of
+                // leaving the user stuck on an unavailable offline language pack.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && usingOnDeviceRecognition &&
+                    (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
+                        error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE)
+                ) {
+                    runCatching {
+                        speechRecognizer?.destroy()
+                        usingOnDeviceRecognition = false
+                        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                        recognizerIntent?.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
+                        speechRecognizer?.setRecognitionListener(this)
+                        speechRecognizer?.startListening(recognizerIntent)
+                    }.onFailure { fallbackError ->
+                        unmuteBeep()
+                        onError(fallbackError.message?.take(120)
+                            ?: "Tamil offline speech is unavailable. Check internet and retry.")
+                    }
+                    return
+                }
+                unmuteBeep()
                 val message = when (error) {
                     SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
                     SpeechRecognizer.ERROR_CLIENT -> "Client side error"
@@ -120,6 +141,8 @@ class SpeechRecognitionEngine(private val context: Context) {
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognition engine busy"
                     SpeechRecognizer.ERROR_SERVER -> "Server error"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Speech input timeout"
+                    SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED -> "Tamil is not supported by this speech engine. Install Tamil speech data."
+                    SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE -> "Tamil speech data is unavailable. Install the Tamil language pack."
                     else -> "Unknown error ($error)"
                 }
                 onError(message)
