@@ -132,7 +132,7 @@ class TextToSpeechEngine(
 
     /** Legacy local-phone voice preference; provider selection is stored separately. */
     private fun voiceProvider(): String =
-        context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("provider", "edge") ?: "edge"
+        context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("provider", "phone") ?: "phone"
 
     private fun voiceChoice(): String =
         context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("gender", "male") ?: "male"
@@ -235,8 +235,8 @@ class TextToSpeechEngine(
                 // Fall through to the built-in Android TTS fallback below.
             }
 
-            // Phone TTS is used only when the user explicitly selects it.
-            // Local fallback — must run on main thread. Not after stop(): a cancelled
+            // Free on-device Phone TTS is the default and the reliable fallback.
+            // Local playback must run on the main thread. Not after stop(): a cancelled
             // ElevenLabs fetch fails, and must not turn into local speech.
             // The first reply often arrives before the engine is ready, so wait for it.
             withTimeoutOrNull(1500) { ready.await() }

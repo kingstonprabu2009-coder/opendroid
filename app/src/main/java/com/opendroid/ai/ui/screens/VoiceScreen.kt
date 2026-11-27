@@ -75,7 +75,7 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val config by viewModel.llmConfig.collectAsState()
     val prefs = remember { context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE) }
-    var provider by remember { mutableStateOf(prefs.getString("provider", "edge") ?: "edge") }
+    var provider by remember { mutableStateOf(prefs.getString("provider", "phone") ?: "phone") }
     var selectedVoiceId by remember { mutableStateOf(prefs.getString("edge_voice", "ta-IN-ValluvarNeural") ?: "ta-IN-ValluvarNeural") }
     var selectedPitch by remember { mutableStateOf(prefs.getString("edge_pitch", "+0Hz") ?: "+0Hz") }
     var menuOpen by remember { mutableStateOf(false) }
