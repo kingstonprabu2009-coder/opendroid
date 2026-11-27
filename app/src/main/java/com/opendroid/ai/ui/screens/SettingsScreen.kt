@@ -323,7 +323,25 @@ fun SettingsScreen(
                         )
                         if (!viewModel.jarvisCloudConfigured) {
                             Text(
-                                text = "Cloud URL is intentionally unset. After the JARVIS Cloud backend is deployed, the final app build will be configured with its HTTPS address.",
+                                text = "Cloud URL is not configured in this build.",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                        } else if (jarvisAccountStatus == "Signed in") {
+                            Text(
+                                text = "Your JARVIS Cloud account is active on this device.",
+                                fontSize = 12.sp,
+                                color = TextSecondary
+                            )
+                            OutlinedButton(
+                                onClick = viewModel::signOutFromJarvisCloud,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Sign out")
+                            }
+                        } else if (jarvisAccountStatus == "Checking session..." || jarvisAccountStatus == "Signing in..." || jarvisAccountStatus == "Creating account...") {
+                            Text(
+                                text = "Please wait while JARVIS checks your account session...",
                                 fontSize = 12.sp,
                                 color = TextSecondary
                             )
@@ -344,11 +362,6 @@ fun SettingsScreen(
                                 singleLine = true,
                                 visualTransformation = PasswordVisualTransformation()
                             )
-                            Text(
-                                text = "New to JARVIS Cloud? Create an account with your email and a password of at least 12 characters.",
-                                fontSize = 11.sp,
-                                color = TextSecondary
-                            )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -367,12 +380,6 @@ fun SettingsScreen(
                                 ) {
                                     Text("Create Account")
                                 }
-                            }
-                            OutlinedButton(
-                                onClick = viewModel::signOutFromJarvisCloud,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text("Sign out")
                             }
                         }
                     }

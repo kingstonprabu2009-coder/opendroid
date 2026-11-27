@@ -87,8 +87,13 @@ class TextToSpeechEngine(
         })
     }
 
+    /** Toasts are UI work: speech/network coroutines run on Dispatchers.IO. */
     private fun showProblem(message: String) {
-        android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+        mainHandler.post {
+            runCatching {
+                android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     override fun onInit(status: Int) {

@@ -85,7 +85,7 @@ class SettingsViewModel @Inject constructor(
     private val _jarvisPassword = MutableStateFlow("")
     val jarvisPassword: StateFlow<String> = _jarvisPassword.asStateFlow()
     private val _jarvisAccountStatus = MutableStateFlow(
-        if (BuildConfig.JARVIS_CLOUD_BASE_URL.startsWith("https://")) "Not signed in" else "Cloud endpoint not configured in this build"
+        if (BuildConfig.JARVIS_CLOUD_BASE_URL.startsWith("https://")) "Checking session..." else "Cloud endpoint not configured in this build"
     )
     val jarvisAccountStatus: StateFlow<String> = _jarvisAccountStatus.asStateFlow()
     val jarvisCloudConfigured: Boolean = BuildConfig.JARVIS_CLOUD_BASE_URL.startsWith("https://")
