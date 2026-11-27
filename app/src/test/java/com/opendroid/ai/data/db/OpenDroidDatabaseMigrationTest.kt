@@ -289,7 +289,7 @@ class OpenDroidDatabaseMigrationTest {
         val database = DatabaseModule.provideDatabase(context)
         try {
             val db = database.openHelper.writableDatabase
-            assertEquals(11, db.version)
+            assertEquals(12, db.version)
             db.query("SELECT `text`, `sessionId` FROM conversations WHERE `id` = 'msg-1'").use { cursor ->
                 assertTrue(cursor.moveToFirst())
                 assertEquals("hello", cursor.getString(0))

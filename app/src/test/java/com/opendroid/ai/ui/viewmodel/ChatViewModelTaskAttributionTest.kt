@@ -260,7 +260,7 @@ class ChatViewModelTaskAttributionTest {
     private fun typeMessageIn(sessionId: String) {
         switchTo(sessionId)
         viewModel.sendMessage("hello", context)
-        assertEquals(sessionId, agent.lastExplicitSessionId)
+        await("message pinned to $sessionId") { agent.lastExplicitSessionId == sessionId }
     }
 
     private fun switchTo(sessionId: String) {
