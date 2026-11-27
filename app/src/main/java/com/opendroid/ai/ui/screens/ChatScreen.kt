@@ -175,7 +175,7 @@ fun ChatScreen(
     }
 
     val speechRecognizer = remember { SpeechRecognitionEngine(context) }
-    
+
     val recordAudioPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { isGranted ->
@@ -215,30 +215,30 @@ fun ChatScreen(
                     Column {
                         Text(
                             text = if (textOnly) "Chat" else "JARVIS",
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.ExtraBold,
                             color = TextPrimary,
-                            fontSize = 20.sp,
-                            letterSpacing = 2.sp
+                            fontSize = 22.sp,
+                            letterSpacing = 0.4.sp
                         )
                         AgentStatusSubtitle(visibleAgentState, runningElsewhere)
                     }
                 },
                 actions = {
-                    
-                        
-                    
-                        
-                            
-                                
-                                
-                                
-                            
-                            
-                            
-                            
-                        
-                    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                     Box {
                         TextButton(onClick = {
                             viewModel.refreshChatTeams()
@@ -394,6 +394,7 @@ fun ChatScreen(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(DarkSurface, DarkBackground, DarkBackground)))
                 .padding(padding)
                 .consumeWindowInsets(padding)
                 .imePadding()
@@ -421,15 +422,20 @@ fun ChatScreen(
                             )
                         }
                     }
-                    items(history) { msg ->
-                        ChatBubble(
-                            message = msg,
-                            viewModel = viewModel,
-                            context = context,
-                            onEditRequested = { startEditingMessage(it) }
-                        )
+                    items(history, key = { it.id }) { msg ->
+                        AnimatedVisibility(
+                            visible = true,
+                            enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 12 }
+                        ) {
+                            ChatBubble(
+                                message = msg,
+                                viewModel = viewModel,
+                                context = context,
+                                onEditRequested = { startEditingMessage(it) }
+                            )
+                        }
                     }
-                    
+
                     // Show a typing/thinking bubble if thinking - scoped to this chat, see
                     // visibleAgentState.
                     if (visibleAgentState is AgentState.Thinking) {
@@ -954,10 +960,15 @@ fun ChatBubble(
                             bottomEnd = if (isAgent) 18.dp else 4.dp
                         )
                     )
-                    .background(bubbleColor)
+                    .background(
+                        if (isAgent) Brush.linearGradient(listOf(bubbleColor, bubbleColor))
+                        else Brush.linearGradient(
+                            listOf(AccentCyan.copy(alpha = 0.20f), AccentPurple.copy(alpha = 0.16f))
+                        )
+                    )
                     .border(
                         1.dp,
-                        bubbleBorder,
+                        if (isAgent) bubbleBorder else AccentCyan.copy(alpha = 0.24f),
                         RoundedCornerShape(
                             topStart = 18.dp,
                             topEnd = 18.dp,
@@ -990,7 +1001,7 @@ fun ChatBubble(
                     color = textColor,
                     lineHeight = 20.sp
                 )
-                
+
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
@@ -1140,7 +1151,7 @@ fun ProposedPlanPrompt(
             }
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Review the steps in the PLAN tab or approve below to execute.",
+                text = "Review the steps in Move or approve below to execute.",
                 fontSize = 12.sp,
                 color = TextSecondary
             )
@@ -1211,14 +1222,15 @@ fun FloatingOrb(
     agentState: AgentState,
     onClick: () -> Unit
 ) {
-    val infiniteTransition = rememberInfiniteTransition(label = "orb")
-    val pulseScale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(1200, easing = EaseInOutSine),
-            repeatMode = RepeatMode.Reverse
-        ),
+    val orbActive = isListening || agentState !is AgentState.Idle
+    val pulseScale by animateFloatAsState(
+        targetValue = if (orbActive) 1.15f else 1f,
+        animationSpec = if (orbActive) {
+            infiniteRepeatable(
+                animation = tween(1200, easing = EaseInOutSine),
+                repeatMode = RepeatMode.Reverse
+            )
+        } else tween(220),
         label = "pulse"
     )
 

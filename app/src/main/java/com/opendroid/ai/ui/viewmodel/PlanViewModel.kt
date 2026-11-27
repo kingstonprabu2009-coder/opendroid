@@ -1,8 +1,10 @@
 package com.opendroid.ai.ui.viewmodel
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.opendroid.ai.core.agent.AgentLoop
+import com.opendroid.ai.core.agent.AgentState
 import com.opendroid.ai.core.agent.PlanManager
 import com.opendroid.ai.data.models.Plan
 import com.opendroid.ai.data.repository.PlanRepository
@@ -21,6 +23,8 @@ class PlanViewModel @Inject constructor(
 ) : ViewModel() {
 
     val currentPlan: StateFlow<Plan?> = planManager.currentPlan
+    val agentState: StateFlow<AgentState> = agentLoop.agentState
+    val proposedPlanSessionId: StateFlow<String?> = agentLoop.proposedPlanSessionId
 
     val planHistory: StateFlow<List<Plan>> = planRepository.allPlans
         .stateIn(
@@ -49,6 +53,15 @@ class PlanViewModel @Inject constructor(
      */
     fun stopTask() {
         agentLoop.cancelCurrentTask()
+    }
+
+    /** Approves only the plan currently waiting at the runtime approval gate. */
+    fun approveProposedPlan(context: Context, planId: String) {
+        agentLoop.approveProposedPlan(context, planId)
+    }
+
+    fun rejectProposedPlan() {
+        agentLoop.rejectProposedPlan()
     }
 
     /**

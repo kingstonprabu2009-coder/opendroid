@@ -157,14 +157,24 @@ fun SettingsScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "JARVIS SETTINGS",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            text = "Settings",
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary,
+                            fontSize = 23.sp,
+                            letterSpacing = 0.2.sp
+                        )
+                        Text(
+                            text = "TUNE YOUR JARVIS EXPERIENCE",
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AccentCyan.copy(alpha = 0.78f),
+                            fontSize = 8.sp,
+                            letterSpacing = 1.8.sp
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
             )
@@ -290,6 +300,10 @@ fun SettingsScreen(
                         }
                     }
                 }
+            }
+
+            item {
+                SettingsSectionHeader("AI CORE", "Account, model and provider configuration")
             }
 
             // First-party JARVIS Cloud account. Password remains in memory only and is cleared after sign-in.
@@ -446,7 +460,7 @@ fun SettingsScreen(
                             color = AccentCyan
                         )
                         Spacer(modifier = Modifier.height(12.dp))
-                        
+
                         // Dropdown menu trigger
                         Box(
                             modifier = Modifier
@@ -486,14 +500,14 @@ fun SettingsScreen(
                                     .border(1.dp, BorderColor)
                             ) {
                                 DropdownMenuItem(
-                                    text = { 
+                                    text = {
                                         Text(
-                                            text = "OFFLINE AI", 
-                                            color = AccentCyan, 
-                                            fontWeight = FontWeight.Bold, 
-                                            fontSize = 11.sp, 
+                                            text = "OFFLINE AI",
+                                            color = AccentCyan,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
                                             fontFamily = FontFamily.Monospace
-                                        ) 
+                                        )
                                     },
                                     enabled = false,
                                     onClick = {}
@@ -512,18 +526,18 @@ fun SettingsScreen(
                                         providerDropdownExpanded = false
                                     }
                                 )
-                                
+
                                 Divider(color = BorderColor, thickness = 1.dp)
 
                                 DropdownMenuItem(
-                                    text = { 
+                                    text = {
                                         Text(
-                                            text = "CLOUD AI", 
-                                            color = AccentCyan, 
-                                            fontWeight = FontWeight.Bold, 
-                                            fontSize = 11.sp, 
+                                            text = "CLOUD AI",
+                                            color = AccentCyan,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 11.sp,
                                             fontFamily = FontFamily.Monospace
-                                        ) 
+                                        )
                                     },
                                     enabled = false,
                                     onClick = {}
@@ -758,47 +772,6 @@ fun SettingsScreen(
                 }
             }
 
-            // Benchmark latency report card link
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, AccentCyan.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .clickable { onNavigateToBenchmark() },
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Benchmark",
-                            tint = AccentCyan,
-                            modifier = Modifier.size(24.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "LLM RESPONSIVENESS REPORT",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = AccentCyan
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "View live charts comparing speeds & latency.",
-                                fontSize = 12.sp,
-                                color = TextSecondary
-                            )
-                        }
-                    }
-                }
-            }
-
             // Ollama Endpoint Config Card (Visible only when Ollama is selected)
             if (config.activeProvider == "Ollama") {
                 item {
@@ -985,7 +958,7 @@ fun SettingsScreen(
                                 color = TextPrimary
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            
+
                             // Show which model is active
                             val activeSpec = OnDeviceModelRegistry.findById(config.activeModel)
                             Text(
@@ -1001,9 +974,9 @@ fun SettingsScreen(
                                     color = TextSecondary
                                 )
                             }
-                            
+
                             Spacer(modifier = Modifier.height(16.dp))
-                            
+
                             // ─── AI Core Backend Section ───
                             Text(
                                 text = "ANDROID AI CORE",
@@ -1013,12 +986,12 @@ fun SettingsScreen(
                                 color = AccentCyan
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            
+
                             var gemma4Status by remember { mutableStateOf("Checking...") }
                             var showGemma4Download by remember { mutableStateOf(false) }
                             var gemma3nStatus by remember { mutableStateOf("Checking...") }
                             var showGemma3nDownload by remember { mutableStateOf(false) }
-                            
+
                             LaunchedEffect(Unit) {
                                 // Check Gemma 4 (default/stable)
                                 try {
@@ -1037,7 +1010,7 @@ fun SettingsScreen(
                                 } catch (e: Exception) {
                                     gemma4Status = "Not supported on this device"
                                 }
-                                
+
                                 // Check Gemma 3n (preview/fast)
                                 try {
                                     val previewConfig = generationConfig {
@@ -1062,7 +1035,7 @@ fun SettingsScreen(
                                     gemma3nStatus = "Not supported on this device"
                                 }
                             }
-                            
+
                             // Gemma 4 AI Core row
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1099,9 +1072,9 @@ fun SettingsScreen(
                                     Text("Download Gemma 4 (AI Core)", color = DarkBackground)
                                 }
                             }
-                            
+
                             Spacer(modifier = Modifier.height(8.dp))
-                            
+
                             // Gemma 3n AI Core row
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -1144,7 +1117,7 @@ fun SettingsScreen(
                                     Text("Download Gemma 3n (AI Core)", color = DarkBackground)
                                 }
                             }
-                            
+
                             Spacer(modifier = Modifier.height(16.dp))
                             Divider(color = BorderColor, thickness = 1.dp)
                             Spacer(modifier = Modifier.height(12.dp))
@@ -1292,7 +1265,7 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.height(16.dp))
                             Divider(color = BorderColor, thickness = 1.dp)
                             Spacer(modifier = Modifier.height(12.dp))
-                            
+
                             // ─── LiteRT-LM Backend Section ───
                             Text(
                                 text = "LITERT-LM (FALLBACK)",
@@ -1319,11 +1292,11 @@ fun SettingsScreen(
                                 val totalSize = modelEntity?.size ?: spec.expectedSize
                                 val speed = modelEntity?.downloadSpeed ?: ""
                                 val eta = modelEntity?.etaString ?: ""
-                                
+
                                 var expanded by remember { mutableStateOf(false) }
                                 val isApiCompatible = android.os.Build.VERSION.SDK_INT >= spec.minSdk
                                 val managedDownloadAvailable = spec.isManagedDownloadAvailable
-                                
+
                                 Card(
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -1399,7 +1372,7 @@ fun SettingsScreen(
                                                     color = TextSecondary
                                                 )
                                             }
-                                            
+
                                             val badgeColor = when (status) {
                                                 ModelStatus.READY -> AccentCyan
                                                 ModelStatus.DOWNLOADING -> Color(0xFFFF9800)
@@ -1408,7 +1381,7 @@ fun SettingsScreen(
                                                 ModelStatus.FAILED -> Color.Red
                                                 else -> TextSecondary
                                             }
-                                            
+
                                             val statusText = when {
                                                 !isApiCompatible -> "API ${spec.minSdk}+ Req"
                                                 status == ModelStatus.READY -> "Downloaded"
@@ -1419,7 +1392,7 @@ fun SettingsScreen(
                                                 status == ModelStatus.FAILED -> "Failed"
                                                 else -> "Not Downloaded"
                                             }
-                                            
+
                                             Text(
                                                 text = statusText,
                                                 fontSize = 10.sp,
@@ -1428,7 +1401,7 @@ fun SettingsScreen(
                                                 modifier = Modifier.padding(start = 8.dp)
                                             )
                                         }
-                                        
+
                                         if (isApiCompatible && (status == ModelStatus.DOWNLOADING || status == ModelStatus.PAUSED)) {
                                             Spacer(modifier = Modifier.height(8.dp))
                                             LinearProgressIndicator(
@@ -1460,7 +1433,7 @@ fun SettingsScreen(
                                                     )
                                                 }
                                             }
-                                            
+
                                             Spacer(modifier = Modifier.height(8.dp))
                                             Row(
                                                 modifier = Modifier.fillMaxWidth(),
@@ -1529,13 +1502,13 @@ fun SettingsScreen(
                                                 }
                                             }
                                         }
-                                        
+
                                         AnimatedVisibility(visible = expanded) {
                                             Column {
                                                 Spacer(modifier = Modifier.height(10.dp))
                                                 Divider(color = BorderColor, thickness = 0.5.dp)
                                                 Spacer(modifier = Modifier.height(8.dp))
-                                                
+
                                                 Row(
                                                     modifier = Modifier.fillMaxWidth(),
                                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1575,7 +1548,7 @@ fun SettingsScreen(
                                                             Text("Import", fontSize = 11.sp, color = TextPrimary)
                                                         }
                                                     }
-                                                    
+
                                                     if (status == ModelStatus.READY) {
                                                          Button(
                                                              onClick = { viewModel.loadModel(spec.id) },
@@ -1594,7 +1567,7 @@ fun SettingsScreen(
                                                              Spacer(modifier = Modifier.width(4.dp))
                                                              Text(if (config.activeModel == spec.id) "Active" else "Load Model", fontSize = 11.sp, color = DarkBackground)
                                                          }
-                                                         
+
                                                          Button(
                                                              onClick = { viewModel.deleteModel(spec.id) },
                                                              colors = ButtonDefaults.buttonColors(containerColor = Color.Red.copy(alpha = 0.2f)),
@@ -1604,7 +1577,7 @@ fun SettingsScreen(
                                                              Icon(Icons.Default.Delete, contentDescription = "Delete", modifier = Modifier.size(14.dp), tint = Color.Red)
                                                          }
                                                     }
-                                                    
+
                                                     Button(
                                                         onClick = {
                                                             // Info clicked (No-op or log details)
@@ -1750,7 +1723,7 @@ fun SettingsScreen(
                                     }
                                 }
                             }
-                            
+
                             Spacer(modifier = Modifier.height(12.dp))
                             Divider(color = BorderColor, thickness = 1.dp)
                             Spacer(modifier = Modifier.height(12.dp))
@@ -1764,12 +1737,12 @@ fun SettingsScreen(
                                 color = Color(0xFFFF9800)
                             )
                             Spacer(modifier = Modifier.height(6.dp))
-                            
+
                             val totalSpace = storageInfo.totalBytes
                             val freeSpace = storageInfo.freeBytes
                             val usedByApp = storageInfo.usedByAppBytes
                             val usedPercentage = if (totalSpace > 0) ((totalSpace - freeSpace).toFloat() / totalSpace.toFloat()) else 0f
-                            
+
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
@@ -2141,6 +2114,10 @@ fun SettingsScreen(
                 }
             }
 
+            item {
+                SettingsSectionHeader("INTELLIGENCE & ACTIONS", "How JARVIS plans and carries out approved tasks")
+            }
+
             // Planning & Automation Preferences Card
             item {
                 Card(
@@ -2356,6 +2333,10 @@ fun SettingsScreen(
                 }
             }
 
+            item {
+                SettingsSectionHeader("CONNECTED FEATURES", "Optional integrations and device permissions")
+            }
+
             // Auto-Reply Settings Card
             item {
                 Card(
@@ -2384,47 +2365,6 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
                                 text = "Configure AI auto-reply for WhatsApp, SMS & Email.",
-                                fontSize = 12.sp,
-                                color = TextSecondary
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Go",
-                            tint = TextSecondary
-                        )
-                    }
-                }
-            }
-
-            // Notification History Card
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, AccentCyan.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .clickable { onNavigateToNotificationHistory() },
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("🔔", fontSize = 22.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "NOTIFICATION HISTORY",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = AccentCyan
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "View captured notifications and auto-reply log.",
                                 fontSize = 12.sp,
                                 color = TextSecondary
                             )
@@ -2484,86 +2424,8 @@ fun SettingsScreen(
                 }
             }
 
-            // Habits & Routines link card
             item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp))
-                        .clickable { onNavigateToRoutines() },
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("⚡", fontSize = 22.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "HABITS & ROUTINES",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = AccentCyan
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "Detect repeated daily patterns & automate morning routines.",
-                                fontSize = 12.sp,
-                                color = TextSecondary
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Go",
-                            tint = TextSecondary
-                        )
-                    }
-                }
-            }
-
-            // Crash Log link card
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, AccentRed.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-                        .clickable { onNavigateToCrashLog() },
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("💥", fontSize = 22.sp)
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = "CRASH LOG",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = AccentRed
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = "View and share crashes recorded on this device.",
-                                fontSize = 12.sp,
-                                color = TextSecondary
-                            )
-                        }
-                        Icon(
-                            imageVector = Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Go",
-                            tint = TextSecondary
-                        )
-                    }
-                }
+                SettingsSectionHeader("ABOUT & SUPPORT", "Privacy, help and app information")
             }
 
             // Privacy Policy link card
@@ -2796,31 +2658,7 @@ fun SettingsScreen(
                 }
             }
 
-            // System integration info card
-            item {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
-                    colors = CardDefaults.cardColors(containerColor = CardBackground)
-                ) {
-                    Column(modifier = Modifier.padding(16.dp)) {
-                        Text(
-                            text = "SYSTEM INTEGRATION PERMISSIONS",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            fontFamily = FontFamily.Monospace,
-                            color = TextSecondary
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = "To allow Jarvis to operate other applications autonomously (e.g. WhatsApp, Calendar), verify that the accessibility service 'Jarvis' is active in Settings -> Accessibility -> Installed Services.",
-                            fontSize = 12.sp,
-                            color = TextSecondary
-                        )
-                    }
-                }
-            }
+
         }
     }
 
@@ -2976,6 +2814,27 @@ fun SettingsScreen(
             containerColor = CardBackground,
             titleContentColor = TextPrimary,
             textContentColor = TextSecondary
+        )
+    }
+}
+
+@Composable
+private fun SettingsSectionHeader(title: String, subtitle: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(start = 4.dp, top = 8.dp, bottom = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Text(
+            text = title,
+            color = AccentCyan,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            letterSpacing = 1.8.sp
+        )
+        Text(
+            text = subtitle,
+            color = TextSecondary,
+            fontSize = 12.sp
         )
     }
 }

@@ -9,13 +9,19 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -60,6 +66,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.ColorMatrix
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -90,10 +97,10 @@ import com.opendroid.ai.ui.theme.AppTheme
 import com.opendroid.ai.ui.theme.TextPrimary
 import com.opendroid.ai.ui.theme.TextSecondary
 import com.opendroid.ai.ui.viewmodel.ChatViewModel
-import com.opendroid.ai.ui.viewmodel.MemoryViewModel
+import com.opendroid.ai.ui.viewmodel.PlanViewModel
 import com.opendroid.ai.ui.viewmodel.SettingsViewModel
 
-private enum class JarvisMode { LIVE_VOICE, CHAT, TEACH, MEMORY }
+private enum class JarvisMode { ORBIT, CHAT, MOVE }
 
 private fun speakingState(state: AgentState): Boolean = state is AgentState.Speaking
 
@@ -115,9 +122,11 @@ fun JarvisHomeScreen(
 ) {
     val context = LocalContext.current
     val chatViewModel: ChatViewModel = hiltViewModel()
-    val memoryViewModel: MemoryViewModel = hiltViewModel()
+    val planViewModel: PlanViewModel = hiltViewModel()
     val agentState by chatViewModel.agentState.collectAsState()
-    var mode by remember { mutableStateOf(JarvisMode.LIVE_VOICE) }
+    val chatSessions by chatViewModel.sessions.collectAsState()
+    val currentChatSessionId = chatSessions.firstOrNull { it.isCurrent }?.id
+    var mode by remember { mutableStateOf(JarvisMode.ORBIT) }
     var showSettings by remember { mutableStateOf(false) }
     val serviceOn by OpenDroidService.isRunning.collectAsState()
 
@@ -184,7 +193,7 @@ fun JarvisHomeScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
-    val inAppWakeOn = !serviceOn && !showSettings && mode == JarvisMode.LIVE_VOICE && appResumed
+    val inAppWakeOn = !serviceOn && !showSettings && mode == JarvisMode.ORBIT && appResumed
     DisposableEffect(inAppWakeOn) {
         var detector: WakeWordDetector? = null
         val micOk = ContextCompat.checkSelfPermission(
@@ -208,7 +217,15 @@ fun JarvisHomeScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .background(AppTheme.colors.background)
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            AppTheme.colors.surface,
+                            AppTheme.colors.background,
+                            AppTheme.colors.background
+                        )
+                    )
+                )
                 .padding(padding)
                 .padding(horizontal = 16.dp, vertical = 8.dp)
         ) {
@@ -222,58 +239,110 @@ fun JarvisHomeScreen(
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = TextPrimary)
                     }
                 } else {
-                    Text(
-                        text = "JARVIS",
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        fontWeight = FontWeight.Bold,
-                        fontFamily = FontFamily.Monospace,
-                        letterSpacing = 2.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            text = "JARVIS",
+                            color = TextPrimary,
+                            fontSize = 23.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            fontFamily = FontFamily.SansSerif,
+                            letterSpacing = 2.8.sp
+                        )
+                        Text(
+                            text = "PERSONAL AI SYSTEM",
+                            color = AccentCyan.copy(alpha = 0.78f),
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            letterSpacing = 2.1.sp
+                        )
+                    }
                 }
 
                 if (!showSettings) {
-                    IconButton(onClick = { showSettings = true }) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = TextSecondary)
+                    IconButton(
+                        onClick = { showSettings = true },
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(AppTheme.colors.surface)
+                    ) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings", tint = AccentCyan)
                     }
                 }
             }
 
             if (!showSettings) {
                 Spacer(Modifier.height(6.dp))
-                androidx.compose.material3.TabRow(
-                    selectedTabIndex = mode.ordinal,
-                    containerColor = androidx.compose.ui.graphics.Color.Transparent,
-                    contentColor = AccentCyan
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(AppTheme.colors.surface)
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     listOf(
-                        JarvisMode.LIVE_VOICE to "Live",
-                        JarvisMode.CHAT to "Chat"
+                        JarvisMode.ORBIT to "Orbit",
+                        JarvisMode.CHAT to "Chat",
+                        JarvisMode.MOVE to "Move"
                     ).forEach { (m, label) ->
-                        androidx.compose.material3.Tab(
-                            selected = mode == m,
-                            onClick = {
-                                mode = m
-                                if (m == JarvisMode.CHAT && serviceOn) {
-                                    // Chat is typed only: close the mic if it was listening.
-                                    context.startService(
-                                        Intent(context, OpenDroidService::class.java)
-                                            .setAction(OpenDroidService.ACTION_CANCEL_LISTEN)
+                        val selected = mode == m
+                        val tabBackground by animateColorAsState(
+                            targetValue = if (selected) Color(0xFF103B55) else Color.Transparent,
+                            animationSpec = tween(220),
+                            label = "mainTabBackground"
+                        )
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(tabBackground)
+                                .clickable {
+                                    mode = m
+                                    if (m != JarvisMode.ORBIT && serviceOn) {
+                                        context.startService(
+                                            Intent(context, OpenDroidService::class.java)
+                                                .setAction(OpenDroidService.ACTION_CANCEL_LISTEN)
+                                        )
+                                    }
+                                }
+                                .padding(vertical = 11.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                                if (selected) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(AccentCyan)
                                     )
                                 }
-                            },
-                            text = { Text(label, maxLines = 1, fontSize = 13.sp) },
-                            selectedContentColor = AccentCyan,
-                            unselectedContentColor = TextSecondary
-                        )
+                                Text(
+                                    text = label,
+                                    maxLines = 1,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                    color = if (selected) Color.White else TextSecondary
+                                )
+                            }
+                        }
                     }
                 }
             }
 
             Spacer(Modifier.height(8.dp))
 
-            when {
-                showSettings -> SettingsScreen(
+            AnimatedContent(
+                targetState = showSettings to mode,
+                modifier = Modifier.weight(1f),
+                transitionSpec = {
+                    (fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 18 }) togetherWith
+                        (fadeOut(tween(160)) + slideOutVertically(tween(160)) { -it / 24 })
+                },
+                label = "jarvisMainScreenTransition"
+            ) { (settingsVisible, currentMode) ->
+                when {
+                settingsVisible -> SettingsScreen(
                     viewModel = settingsViewModel,
                     onNavigateToBenchmark = onNavigateToBenchmark,
                     onNavigateToPrivacyPolicy = onNavigateToPrivacyPolicy,
@@ -286,20 +355,19 @@ fun JarvisHomeScreen(
                     onNavigateToPermissions = onNavigateToPermissions,
                     onNavigateToCrashLog = onNavigateToCrashLog,
                     onNavigateToRoutines = onNavigateToRoutines,
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier.fillMaxSize()
                 )
 
-                mode == JarvisMode.TEACH -> TeachTab(modifier = Modifier.weight(1f))
-
-                mode == JarvisMode.MEMORY -> MemoryScreen(
-                    viewModel = memoryViewModel,
-                    modifier = Modifier.weight(1f)
-                )
-
-                mode == JarvisMode.CHAT -> ChatScreen(
+                currentMode == JarvisMode.CHAT -> ChatScreen(
                     viewModel = chatViewModel,
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.fillMaxSize(),
                     textOnly = true
+                )
+
+                currentMode == JarvisMode.MOVE -> PlanScreen(
+                    viewModel = planViewModel,
+                    currentSessionId = currentChatSessionId,
+                    modifier = Modifier.fillMaxSize()
                 )
 
                 else -> {
@@ -309,36 +377,46 @@ fun JarvisHomeScreen(
                     val active = agentState is AgentState.Listening ||
                         agentState is AgentState.Thinking ||
                         agentState is AgentState.Speaking || speaking
-                    val transition = rememberInfiniteTransition(label = "jarvisOrb")
-                    // Clearly visible breathing in every mode; stronger/faster while active.
-                    val pulse by transition.animateFloat(
-                        initialValue = 1f,
+                    // Animate continuously only while listening, thinking or speaking.
+                    // Idle Orbit settles to a still frame to avoid wasting battery.
+                    val pulse by animateFloatAsState(
                         targetValue = when {
                             speaking -> 1.075f
                             active -> 1.06f
-                            else -> 1.025f
+                            else -> 1f
                         },
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(
-                                durationMillis = when {
-                                    speaking -> 420
-                                    active -> 760
-                                    else -> 1800
-                                },
-                                easing = LinearEasing
-                            ),
-                            repeatMode = RepeatMode.Reverse
-                        ),
+                        animationSpec = if (active) {
+                            infiniteRepeatable(
+                                animation = tween(
+                                    durationMillis = if (speaking) 420 else 760,
+                                    easing = LinearEasing
+                                ),
+                                repeatMode = RepeatMode.Reverse
+                            )
+                        } else tween(500),
                         label = "orbPulse"
                     )
-                    val shake by transition.animateFloat(
-                        initialValue = -1f,
-                        targetValue = 1f,
-                        animationSpec = infiniteRepeatable(
-                            animation = tween(210, easing = LinearEasing),
-                            repeatMode = RepeatMode.Reverse
-                        ),
+                    val shake by animateFloatAsState(
+                        targetValue = if (speaking) 1f else 0f,
+                        animationSpec = if (speaking) {
+                            infiniteRepeatable(
+                                animation = tween(210, easing = LinearEasing),
+                                repeatMode = RepeatMode.Reverse
+                            )
+                        } else tween(140),
                         label = "orbVoiceMotion"
+                    )
+                    // Slow, lightweight orbital motion: decorative rings remain subtle while
+                    // the central JARVIS mark changes state. Animation only runs on Live Voice.
+                    val orbitAngle by animateFloatAsState(
+                        targetValue = if (active) 360f else 0f,
+                        animationSpec = if (active) {
+                            infiniteRepeatable(
+                                animation = tween(12000, easing = LinearEasing),
+                                repeatMode = RepeatMode.Restart
+                            )
+                        } else tween(320),
+                        label = "orbitalMotion"
                     )
                     val glowColorTarget = when {
                         speaking -> AccentCyan
@@ -397,25 +475,39 @@ fun JarvisHomeScreen(
                         ) {
                             // Light that starts exactly at the orb's outer ring and fades out.
                             // No glow until Jarvis is switched ON.
-                            if (serviceOn) Canvas(Modifier.fillMaxSize()) {
+                            Canvas(Modifier.fillMaxSize()) {
                                 val orb = 126.dp.toPx() * (if (active) pulse else 1f)
                                 val outer = size.minDimension / 2f
                                 val edge = orb / outer
-                                val strength = (if (active) 0.85f else 0.8f) + breath * 0.15f
+                                val strength = if (serviceOn) (if (active) 0.85f else 0.55f) + breath * 0.15f else 0.16f
                                 fun at(t: Float) = edge + (1f - edge) * t
-                                drawCircle(
-                                    brush = Brush.radialGradient(
-                                        0f to glowColor.copy(alpha = strength),
-                                        edge to glowColor.copy(alpha = strength),
-                                        at(0.12f) to glowColor.copy(alpha = strength * 0.85f),
-                                        at(0.35f) to glowColor.copy(alpha = strength * 0.55f),
-                                        at(0.65f) to glowColor.copy(alpha = strength * 0.22f),
-                                        1f to Color.Transparent,
-                                        center = center,
+                                if (serviceOn) {
+                                    drawCircle(
+                                        brush = Brush.radialGradient(
+                                            0f to glowColor.copy(alpha = strength),
+                                            edge to glowColor.copy(alpha = strength),
+                                            at(0.12f) to glowColor.copy(alpha = strength * 0.85f),
+                                            at(0.35f) to glowColor.copy(alpha = strength * 0.55f),
+                                            at(0.65f) to glowColor.copy(alpha = strength * 0.22f),
+                                            1f to Color.Transparent,
+                                            center = center,
+                                            radius = outer
+                                        ),
                                         radius = outer
-                                    ),
-                                    radius = outer
-                                )
+                                    )
+                                }
+                                val ringColor = glowColor.copy(alpha = if (serviceOn) 0.42f else 0.16f)
+                                val ringRadius = 150.dp.toPx()
+                                drawCircle(color = ringColor, radius = ringRadius, style = Stroke(width = 1.dp.toPx()))
+                                drawCircle(color = ringColor.copy(alpha = ringColor.alpha * 0.55f), radius = 166.dp.toPx(), style = Stroke(width = 0.7.dp.toPx()))
+                                val angle = Math.toRadians(orbitAngle.toDouble())
+                                val dotX = center.x + kotlin.math.cos(angle).toFloat() * ringRadius
+                                val dotY = center.y + kotlin.math.sin(angle).toFloat() * ringRadius
+                                drawCircle(color = glowColor.copy(alpha = if (serviceOn) 0.95f else 0.5f), radius = 3.2.dp.toPx(), center = Offset(dotX, dotY))
+                                val secondAngle = angle * -0.72 - 1.2
+                                val secondX = center.x + kotlin.math.cos(secondAngle).toFloat() * 166.dp.toPx()
+                                val secondY = center.y + kotlin.math.sin(secondAngle).toFloat() * 166.dp.toPx()
+                                drawCircle(color = AccentPurple.copy(alpha = if (serviceOn) 0.78f else 0.3f), radius = 2.2.dp.toPx(), center = Offset(secondX, secondY))
                             }
                             // Only the ring art is shown; its black surround is clipped away
                             // so it cannot hide the glow.
@@ -551,42 +643,6 @@ fun JarvisHomeScreen(
                     }
                 }
             }
-        }
-    }
-}
-
-
-@Composable
-private fun TeachTab(modifier: Modifier = Modifier) {
-    val context = androidx.compose.ui.platform.LocalContext.current
-    var on by remember { mutableStateOf(com.opendroid.ai.core.teaching.TeachingMode.active) }
-    var names by remember { mutableStateOf(com.opendroid.ai.core.teaching.TeachingMode.lessonNames(context)) }
-    Column(modifier = modifier.fillMaxWidth().padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(
-            if (on) "Teaching ON: neenga phone la pannunga, Jarvis kathukkum." else "Teaching OFF",
-            color = if (on) androidx.compose.ui.graphics.Color(0xFFFFB300) else TextSecondary,
-            fontSize = 14.sp
-        )
-        Button(onClick = {
-            if (on) com.opendroid.ai.core.teaching.TeachingMode.stop(context)
-            else com.opendroid.ai.core.teaching.TeachingMode.start(context)
-            on = com.opendroid.ai.core.teaching.TeachingMode.active
-            names = com.opendroid.ai.core.teaching.TeachingMode.lessonNames(context)
-        }) { Text(if (on) "Stop and save lesson" else "Start teaching") }
-        Text("Saved lessons", color = TextSecondary, fontSize = 12.sp)
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            items(names) { n ->
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically
-                ) {
-                    Text(n, color = androidx.compose.ui.graphics.Color.White, fontSize = 14.sp)
-                    OutlinedButton(onClick = {
-                        com.opendroid.ai.core.teaching.TeachingMode.delete(context, n)
-                        names = com.opendroid.ai.core.teaching.TeachingMode.lessonNames(context)
-                    }) { Text("Delete", fontSize = 12.sp) }
-                }
             }
         }
     }
@@ -599,14 +655,14 @@ private fun VoiceStateVisualizer(
     active: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val motion = rememberInfiniteTransition(label = "voiceStateVisualizer")
-    val phase by motion.animateFloat(
-        initialValue = 0f,
-        targetValue = (Math.PI * 2.0).toFloat(),
-        animationSpec = infiniteRepeatable(
-            animation = tween(durationMillis = if (active) 850 else 2600, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
+    val phase by animateFloatAsState(
+        targetValue = if (active) (Math.PI * 2.0).toFloat() else 0f,
+        animationSpec = if (active) {
+            infiniteRepeatable(
+                animation = tween(durationMillis = 850, easing = LinearEasing),
+                repeatMode = RepeatMode.Restart
+            )
+        } else tween(300),
         label = "voiceVisualizerPhase"
     )
     Canvas(modifier = modifier.height(34.dp)) {

@@ -15,12 +15,16 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.opendroid.ai.core.agent.AgentState
+import com.opendroid.ai.core.agent.PlanApprovalSummary
 import com.opendroid.ai.data.models.Plan
 import com.opendroid.ai.data.models.PlanStatus
 import com.opendroid.ai.data.models.PlanStep
@@ -36,10 +40,18 @@ import java.util.Locale
 @Composable
 fun PlanScreen(
     viewModel: PlanViewModel,
+    currentSessionId: String? = null,
     modifier: Modifier = Modifier
 ) {
     val currentPlan by viewModel.currentPlan.collectAsState()
     val planHistory by viewModel.planHistory.collectAsState()
+    val agentState by viewModel.agentState.collectAsState()
+    val proposedPlanSessionId by viewModel.proposedPlanSessionId.collectAsState()
+    val context = LocalContext.current
+    // Never surface an approval from another chat session in this workspace.
+    val proposedPlan = if (proposedPlanSessionId != null && proposedPlanSessionId == currentSessionId) {
+        (agentState as? AgentState.PlanProposed)?.plan
+    } else null
     
     var selectedPlanId by remember { mutableStateOf<String?>(null) }
     val displayPlan = if (selectedPlanId != null) {
@@ -52,14 +64,23 @@ fun PlanScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text(
-                        text = "PLAN ENGINE",
-                        fontFamily = FontFamily.Monospace,
-                        fontWeight = FontWeight.Bold,
-                        color = TextPrimary,
-                        fontSize = 20.sp,
-                        letterSpacing = 2.sp
-                    )
+                    Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                        Text(
+                            text = "Move",
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = TextPrimary,
+                            fontSize = 23.sp
+                        )
+                        Text(
+                            text = "APPROVED ACTIONS & AUTOMATION",
+                            fontFamily = FontFamily.SansSerif,
+                            fontWeight = FontWeight.SemiBold,
+                            color = AccentCyan.copy(alpha = 0.78f),
+                            fontSize = 8.sp,
+                            letterSpacing = 1.7.sp
+                        )
+                    }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = DarkBackground)
             )
@@ -70,11 +91,26 @@ fun PlanScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
+                .background(Brush.verticalGradient(listOf(DarkSurface, DarkBackground, DarkBackground)))
                 .padding(padding)
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
+            // A proposed plan can be reviewed and approved here, not only from Chat.
+            if (proposedPlan != null) {
+                item(key = "move-proposed-${proposedPlan.planId}") {
+                    ProposedPlanPrompt(
+                        planId = proposedPlan.planId,
+                        goal = proposedPlan.goal,
+                        stepCount = PlanApprovalSummary.stepCount(proposedPlan),
+                        stepLines = PlanApprovalSummary.stepLines(proposedPlan),
+                        onApprove = { viewModel.approveProposedPlan(context, proposedPlan.planId) },
+                        onReject = viewModel::rejectProposedPlan
+                    )
+                }
+            }
+
             // Main Section: Current Active Plan
             if (displayPlan != null) {
                 val isCurrentActivePlan = displayPlan!!.planId == currentPlan?.planId
@@ -90,7 +126,7 @@ fun PlanScreen(
 
                 item {
                     Text(
-                        text = "PLAN SEQUENCE STAGE",
+                        text = "ACTION FLOW",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -123,7 +159,7 @@ fun PlanScreen(
             if (planHistory.isNotEmpty()) {
                 item {
                     Text(
-                        text = "AUTONOMOUS EXECUTION HISTORY",
+                        text = "RECENT RUNS",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
@@ -156,10 +192,11 @@ fun PlanHeaderCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, if (isCurrentActive) AccentCyan.copy(alpha = 0.5f) else BorderColor, RoundedCornerShape(12.dp)),
+            .border(1.dp, if (isCurrentActive) AccentCyan.copy(alpha = 0.5f) else BorderColor, RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = DarkSurface)
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Column(modifier = Modifier.padding(20.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -273,7 +310,8 @@ fun EmptyPlanPlaceholder() {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
+            .border(1.dp, BorderColor, RoundedCornerShape(20.dp)),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = DarkSurface)
     ) {
         Column(
@@ -318,9 +356,9 @@ fun PastPlanRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
+            .clip(RoundedCornerShape(14.dp))
             .background(if (isSelected) CardBackground else Color.Transparent)
-            .border(1.dp, if (isSelected) BorderColor else Color.Transparent, RoundedCornerShape(8.dp))
+            .border(1.dp, if (isSelected) BorderColor else Color.Transparent, RoundedCornerShape(14.dp))
             .clickable { onSelect() }
             .padding(12.dp),
         horizontalArrangement = Arrangement.SpaceBetween,
