@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Settings
@@ -462,6 +463,7 @@ fun JarvisHomeScreen(
                         else -> if (serviceOn) "WAKE WORD ACTIVE" else "SERVICE STOPPED"
                     }
 
+                    val orbitPurple = AccentPurple
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -507,7 +509,7 @@ fun JarvisHomeScreen(
                                 val secondAngle = angle * -0.72 - 1.2
                                 val secondX = center.x + kotlin.math.cos(secondAngle).toFloat() * 166.dp.toPx()
                                 val secondY = center.y + kotlin.math.sin(secondAngle).toFloat() * 166.dp.toPx()
-                                drawCircle(color = AccentPurple.copy(alpha = if (serviceOn) 0.78f else 0.3f), radius = 2.2.dp.toPx(), center = Offset(secondX, secondY))
+                                drawCircle(color = orbitPurple.copy(alpha = if (serviceOn) 0.78f else 0.3f), radius = 2.2.dp.toPx(), center = Offset(secondX, secondY))
                             }
                             // Only the ring art is shown; its black surround is clipped away
                             // so it cannot hide the glow.
