@@ -433,16 +433,14 @@ fun JarvisHomeScreen(
                     )
                     val heard by VoiceSubtitles.heard.collectAsState()
                     val reply by VoiceSubtitles.reply.collectAsState()
-                    val history by chatViewModel.conversationHistory.collectAsState()
-                    val spoken = history.filter { it.text.isNotBlank() }
-                    // Show live recognition text until the saved conversation catches up.
-                    val heardNote = if (heard.isNotBlank() && spoken.none { it.text == heard }) heard else ""
-                    // Do not show a reply twice once it is in the saved history.
-                    val note = if (reply.isNotBlank() && spoken.none { it.text == reply }) reply else ""
+                    // Orbit is a voice-only surface: never read the general chat history here.
+                    // Chat-tab messages remain exclusively inside ChatScreen.
+                    val heardNote = heard
+                    val note = reply
                     val historyState = rememberLazyListState()
-                    val lines = spoken.size + (if (heardNote.isNotBlank()) 1 else 0) +
+                    val lines = (if (heardNote.isNotBlank()) 1 else 0) +
                         (if (note.isNotBlank()) 1 else 0)
-                    LaunchedEffect(lines, heardNote, note, spoken.lastOrNull()?.text) {
+                    LaunchedEffect(lines, heardNote, note) {
                         if (lines > 0) historyState.animateScrollToItem(lines - 1)
                     }
                     val orbColor = when {
@@ -586,15 +584,6 @@ fun JarvisHomeScreen(
                                 .weight(1f),
                             verticalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            items(spoken) { message ->
-                                val mine = message.sender == ChatMessage.Sender.USER
-                                Text(
-                                    (if (mine) "You: " else "Jarvis: ") + message.text,
-                                    color = if (mine) TextSecondary else TextPrimary,
-                                    fontSize = 15.sp,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
                             // Live speech-to-text subtitle; disappears when saved history catches up.
                             if (heardNote.isNotBlank()) {
                                 item(key = "live-heard-subtitle") {
