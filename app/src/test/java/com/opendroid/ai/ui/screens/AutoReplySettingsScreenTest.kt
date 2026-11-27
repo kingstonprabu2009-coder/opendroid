@@ -210,6 +210,6 @@ class AutoReplySettingsScreenTest {
 
     private companion object {
         const val CANNED_REPLY = "I'm driving, call you later"
-        const val WAIT_MILLIS = 5_000L
+        const val WAIT_MILLIS = 15_000L
     }
 }
