@@ -510,6 +510,21 @@ fun JarvisHomeScreen(
                                 val secondX = center.x + kotlin.math.cos(secondAngle).toFloat() * 166.dp.toPx()
                                 val secondY = center.y + kotlin.math.sin(secondAngle).toFloat() * 166.dp.toPx()
                                 drawCircle(color = orbitPurple.copy(alpha = if (serviceOn) 0.78f else 0.3f), radius = 2.2.dp.toPx(), center = Offset(secondX, secondY))
+                                // Voice-reactive energy particles radiate from the orbit while JARVIS speaks.
+                                if (speaking) {
+                                    for (i in 0 until 16) {
+                                        val particleAngle = angle + i * (Math.PI * 2.0 / 16.0)
+                                        val travel = 174.dp.toPx() + (sin(angle * 2.0 + i).toFloat() + 1f) * 15.dp.toPx()
+                                        val particleX = center.x + kotlin.math.cos(particleAngle).toFloat() * travel
+                                        val particleY = center.y + kotlin.math.sin(particleAngle).toFloat() * travel
+                                        val fade = 0.28f + ((sin(angle + i * 0.7).toFloat() + 1f) * 0.28f)
+                                        drawCircle(
+                                            color = if (i % 3 == 0) orbitPurple.copy(alpha = fade) else glowColor.copy(alpha = fade),
+                                            radius = if (i % 4 == 0) 2.4.dp.toPx() else 1.35.dp.toPx(),
+                                            center = Offset(particleX, particleY)
+                                        )
+                                    }
+                                }
                             }
                             // Only the ring art is shown; its black surround is clipped away
                             // so it cannot hide the glow.
