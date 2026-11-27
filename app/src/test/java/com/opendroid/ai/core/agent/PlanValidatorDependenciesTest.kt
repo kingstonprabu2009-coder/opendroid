@@ -33,4 +33,14 @@ class PlanValidatorDependenciesTest {
         )
         assertEquals(emptyList<String>(), cleaned.last().dependsOn)
     }
+
+    @Test
+    fun `ten steps are within the safe plan limit`() {
+        PlanValidator.requirePlanStepLimit(10)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `plans above the safe step limit are rejected`() {
+        PlanValidator.requirePlanStepLimit(11)
+    }
 }

@@ -1,6 +1,141 @@
 import { describe, expect, it } from "vitest";
-import worker, { hashInvitationToken, isValidInviteEmail, resolvePlatformRole, shouldEnableThinking } from "../src/index";
+import worker, { consumeDailyChatQuota, hashInvitationToken, hasRunnableBrainProvider, isValidInviteEmail, resolvePlatformRole, shouldEnableThinking, validateChatContent } from "../src/index";
+import { FREE_KIMI_MODEL, selectBrainRoute } from "../src/brain-router";
 const env = { DB: {} as D1Database, JARVIS_ENV: "test", ALLOWED_ORIGIN: "http://localhost:8080" };
+describe("JARVIS daily chat quota", () => {
+  it("consumes a slot when the database returns a row", async () => {
+    const db = {
+      prepare: () => ({
+        bind: () => ({ first: async () => ({ request_count: 1 }) })
+      })
+    } as unknown as D1Database;
+    await expect(consumeDailyChatQuota(db, "user-1", 20)).resolves.toBe(true);
+  });
+
+  it("rejects a request when the atomic quota update returns no row", async () => {
+    const db = {
+      prepare: () => ({
+        bind: () => ({ first: async () => null })
+      })
+    } as unknown as D1Database;
+    await expect(consumeDailyChatQuota(db, "user-1", 20)).resolves.toBe(false);
+  });
+});
+
+describe("JARVIS cloud image input validation", () => {
+  it("accepts bounded base64 image data URLs with text prompts", () => {
+    expect(validateChatContent("user", [
+      { type: "text", text: "What is in this screenshot?" },
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,SGVsbG8=" } }
+    ])).not.toBeNull();
+  });
+
+  it("rejects remote image URLs, malformed data URLs, and image content in assistant messages", () => {
+    expect(validateChatContent("user", [
+      { type: "image_url", image_url: { url: "https://example.com/image.jpg" } }
+    ])).toBeNull();
+    expect(validateChatContent("user", [
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,not valid!" } }
+    ])).toBeNull();
+    expect(validateChatContent("assistant", [
+      { type: "image_url", image_url: { url: "data:image/jpeg;base64,SGVsbG8=" } }
+    ])).toBeNull();
+  });
+});
+
+describe("JARVIS cloud provider availability", () => {
+  it("requires the correct free runtime for Cloudflare and Kimi models", () => {
+    expect(hasRunnableBrainProvider(["@cf/zai-org/glm-4.7-flash"], {})).toBe(false);
+    expect(hasRunnableBrainProvider(["@cf/zai-org/glm-4.7-flash"], { AI: {} as Ai })).toBe(true);
+    expect(hasRunnableBrainProvider([FREE_KIMI_MODEL], { AI: {} as Ai })).toBe(false);
+    expect(hasRunnableBrainProvider([FREE_KIMI_MODEL], { OPENROUTER_API_KEY: "test-free-key" })).toBe(true);
+    expect(hasRunnableBrainProvider(["moonshotai/kimi-k3.1-pro"], { OPENROUTER_API_KEY: "test-free-key" })).toBe(false);
+  });
+});
+
+describe("JARVIS unified brain routing", () => {
+  it("routes ordinary conversation to the fast general model", () => {
+    expect(selectBrainRoute("Hi JARVIS", {}, false)).toMatchObject({
+      task: "general", model: "@cf/zai-org/glm-4.7-flash"
+    });
+  });
+
+  it("routes complex planning to the reasoning model", () => {
+    expect(selectBrainRoute("Plan the workflow", {}, true)).toMatchObject({
+      task: "reasoning", model: FREE_KIMI_MODEL
+    });
+  });
+
+  it("routes image analysis only to vision-capable models", () => {
+    expect(selectBrainRoute("Analyze this screenshot", {}, false, true)).toMatchObject({
+      model: FREE_KIMI_MODEL,
+      modelCandidates: [FREE_KIMI_MODEL, "@cf/google/gemma-4-26b-a4b-it"]
+    });
+  });
+
+  it("routes source-code work to the coding model", () => {
+    expect(selectBrainRoute("Debug this Kotlin build error", {}, true)).toMatchObject({
+      task: "coding", model: FREE_KIMI_MODEL
+    });
+  });
+
+  it("builds a free multi-model recovery chain without sending prompts to every model", () => {
+    const route = selectBrainRoute("Debug this Kotlin build error", {}, true);
+    expect(route.modelCandidates).toEqual([
+      FREE_KIMI_MODEL,
+      "@cf/google/gemma-4-26b-a4b-it",
+      "@cf/openai/gpt-oss-20b",
+      "@cf/qwen/qwen3.8-27b",
+      "@cf/meta/llama-4-scout-17b-16e-instruct",
+      "@cf/zai-org/glm-4.7-flash"
+    ]);
+    expect(new Set(route.modelCandidates).size).toBe(route.modelCandidates.length);
+  });
+
+  it("honors per-task model overrides and a shared fallback", () => {
+    expect(selectBrainRoute("Write Python code", {
+      JARVIS_MODEL_CODING: "@cf/qwen/qwen3.8-27b",
+      JARVIS_MODEL_FALLBACK: "@cf/google/gemma-4-26b-a4b-it"
+    }, false)).toMatchObject({
+      task: "coding", model: "@cf/qwen/qwen3.8-27b", fallbackModel: "@cf/google/gemma-4-26b-a4b-it"
+    });
+  });
+
+  it("preserves the legacy global model override when it is on the free allowlist", () => {
+    expect(selectBrainRoute("Debug Kotlin", {
+      JARVIS_MODEL: "@cf/openai/gpt-oss-20b"
+    }, true)).toMatchObject({ model: "@cf/openai/gpt-oss-20b" });
+  });
+
+  it("rejects paid and external API model IDs even if obsolete paid flags are supplied", () => {
+    for (const forbidden of [
+      "moonshotai/kimi-k3.1-pro",
+      "@cf/moonshotai/kimi-k2.6",
+      "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
+      "@cf/zai-org/glm-5.3",
+      "openai:gpt-6.2-astra"
+    ]) {
+      expect(selectBrainRoute("Plan this carefully", {
+        JARVIS_MODEL_REASONING: forbidden
+      }, true)).toMatchObject({ model: FREE_KIMI_MODEL });
+      const route = selectBrainRoute("Hello", {
+        JARVIS_MODEL: forbidden
+      }, false);
+      expect(route.modelCandidates.every(model => model === FREE_KIMI_MODEL || (!model.toLowerCase().includes("kimi") && !model.startsWith("openai:")))).toBe(true);
+    }
+  });
+
+  it("rejects unknown provider model IDs and keeps fallback on the free allowlist", () => {
+    expect(selectBrainRoute("Hello", {
+      JARVIS_MODEL: "@cf/unknown/private-model",
+      JARVIS_MODEL_FALLBACK: "@cf/unknown/fallback"
+    }, false)).toMatchObject({
+      model: "@cf/zai-org/glm-4.7-flash",
+      fallbackModel: "@cf/google/gemma-4-26b-a4b-it"
+    });
+  });
+});
+
 
 describe("JARVIS adaptive reasoning mode", () => {
   it("keeps ordinary short chat in fast mode", () => {
@@ -88,6 +223,7 @@ describe("JARVIS Cloud API foundation", () => {
   const body = await response.json() as Record<string, unknown>;
   expect(response.status).toBe(200); expect(body.service).toBe("jarvis-cloud-api");
   expect(body.status).toBe("ok"); expect(body.ai).toBe("not_configured");
+  expect(body.brain).toBe("automatic_model_routing");
   expect(response.headers.get("cache-control")).toBe("no-store");
  });
  it("keeps application routes disabled until security is ready", async () => {

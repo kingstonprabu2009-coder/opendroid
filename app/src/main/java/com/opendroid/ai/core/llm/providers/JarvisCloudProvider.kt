@@ -33,13 +33,23 @@ class JarvisCloudProvider @Inject constructor(
         if (!baseUrl.startsWith("https://")) {
             throw IOException("JARVIS Cloud is not configured yet. Cloud deployment URL is required.")
         }
-        if (request.messages.any { it.imageBase64 != null }) {
-            throw IOException("JARVIS Cloud image understanding is not enabled yet. Text chat is supported.")
-        }
         val messages = request.messages.map { message ->
+            val role = if (message.sender == ChatMessage.Sender.USER) "user" else "assistant"
+            val image = message.imageBase64
+            if (image != null && image.length > 5_500_000) {
+                throw IOException("The selected image is too large for JARVIS Cloud analysis.")
+            }
             mapOf(
-                "role" to if (message.sender == ChatMessage.Sender.USER) "user" else "assistant",
-                "content" to message.text
+                "role" to role,
+                "content" to if (image != null && role == "user") {
+                    listOf(
+                        mapOf("type" to "text", "text" to message.text),
+                        mapOf(
+                            "type" to "image_url",
+                            "image_url" to mapOf("url" to "data:image/jpeg;base64,$image")
+                        )
+                    )
+                } else message.text
             )
         }
         if (messages.isEmpty()) throw IOException("Add a message before sending.")
@@ -59,9 +69,11 @@ class JarvisCloudProvider @Inject constructor(
             val body = response.body.string()
             if (response.code == 401) throw IOException("Sign in to your JARVIS Cloud account first.")
             if (!response.isSuccessful) {
-                val detail = runCatching {
-                    gson.fromJson(body, Map::class.java)?.get("error")?.toString()
+                val errorFields = runCatching {
+                    gson.fromJson(body, Map::class.java)
                 }.getOrNull()
+                val detail = errorFields?.get("message")?.toString()?.takeIf { it.isNotBlank() }
+                    ?: errorFields?.get("error")?.toString()?.takeIf { it.isNotBlank() }
                 throw IOException("JARVIS Cloud request failed (HTTP ${response.code}): ${detail ?: response.message}")
             }
             val parsed = runCatching { gson.fromJson(body, GatewayResponse::class.java) }.getOrNull()

@@ -4,14 +4,17 @@ compatibility_date = "2026-11-26"
 compatibility_flags = ["nodejs_compat"]
 
 [vars]
-JARVIS_ENV = "development"
-ALLOWED_ORIGIN = "http://localhost:8080"
-BETTER_AUTH_URL = "http://localhost:8787"
+JARVIS_ENV = "production"
+ALLOWED_ORIGIN = "https://jarvis-cloud-api.kingstonprabu2009.workers.dev"
+BETTER_AUTH_URL = "https://jarvis-cloud-api.kingstonprabu2009.workers.dev"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "jarvis-db"
-database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+database_id = "298ac97c-b051-430a-9773-e837537e3473"
 migrations_dir = "migrations"
+
+[ai]
+binding = "AI"
 
 # Store secrets in provider secret manager, never commit them.

@@ -63,11 +63,26 @@ object TanglishToTamil {
 
     private const val PULLI = "்"
 
+    private val tamilRomanHints = setOf(
+        "naan", "nan", "na", "neenga", "nee", "ne", "enakku", "unakku", "unga",
+        "epdi", "eppadi", "iruka", "irukku", "irukkum", "pannunga", "panra", "panren",
+        "pannu", "sollu", "sollunga", "venum", "vendaam", "illa", "illai", "aama",
+        "seri", "ippo", "eppo", "enna", "enga", "romba", "nalla", "mudiyum",
+        "mudiyala", "vaanga", "paaru", "paathu", "kudunga", "appo", "apram",
+        "athu", "idhu", "ithu", "dhan", "thaan", "maari", "pola", "kooda"
+    )
+
     /** True when [text] reads like real English rather than Tanglish. */
     fun looksEnglish(text: String): Boolean {
         val words = Regex("[A-Za-z']+").findAll(text).map { it.value.lowercase() }.toList()
         if (words.size < 3) return false
         return words.count { it in englishHints } >= 2
+    }
+
+    /** True when Roman-letter text contains common spoken-Tamil transliterations. */
+    fun looksTanglish(text: String): Boolean {
+        val words = Regex("[A-Za-z']+").findAll(text).map { it.value.lowercase() }.toList()
+        return words.any { it in tamilRomanHints } && !looksEnglish(text)
     }
 
     /** Converts every Roman word in [text] to Tamil script; other characters are kept. */

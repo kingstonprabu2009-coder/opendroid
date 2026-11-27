@@ -18,7 +18,7 @@ android {
         versionCode 11
         versionName "1.1.0"
         // Empty by default: cloud features fail closed until a real HTTPS deployment URL is supplied.
-        def jarvisCloudUrl = (project.findProperty("JARVIS_CLOUD_BASE_URL") ?: "").toString()
+        def jarvisCloudUrl = (project.findProperty("JARVIS_CLOUD_BASE_URL") ?: "https://jarvis-cloud-api.kingstonprabu2009.workers.dev").toString()
         buildConfigField "String", "JARVIS_CLOUD_BASE_URL", "\"${jarvisCloudUrl}\""
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"

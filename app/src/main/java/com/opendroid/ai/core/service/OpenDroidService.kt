@@ -299,7 +299,7 @@ class OpenDroidService : Service() {
 
     /** Real-time streaming call with Gemini Live. Returns false if it cannot start (no key, switched off). */
     private fun tryStartLive(): Boolean {
-        val enabled = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("live_gemini", true)
+        val enabled = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("live_gemini", false)
         if (!enabled || live?.isRunning == true) return enabled && live?.isRunning == true
         serviceScope.launch {
             val key = settingsRepository.llmConfig.first().apiKeys["Google Gemini"].orEmpty()

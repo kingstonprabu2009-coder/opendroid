@@ -89,6 +89,7 @@ fun SettingsScreen(
     val jarvisPassword by viewModel.jarvisPassword.collectAsState()
     val jarvisAccountStatus by viewModel.jarvisAccountStatus.collectAsState()
     val platformRole by viewModel.platformRole.collectAsState()
+    val canManageBrain = platformRole == "owner" || platformRole == "admin"
     val platformAdmins by viewModel.platformAdmins.collectAsState()
     val adminEmail by viewModel.adminEmail.collectAsState()
     val adminManagementStatus by viewModel.adminManagementStatus.collectAsState()
@@ -108,24 +109,8 @@ fun SettingsScreen(
     val mcpConfigRecoveryState by viewModel.mcpConfigRecoveryState.collectAsState()
     val mcpResetFailed by viewModel.mcpResetFailed.collectAsState()
 
-    val providers = listOf(
-        "JARVIS Cloud",
-        "Google Gemini",
-        "OpenAI",
-        "Anthropic Claude",
-        "Groq",
-        "Mistral AI",
-        "OpenRouter",
-        "Together AI",
-        "Cohere",
-        "DeepSeek",
-        "Copilot API",
-        "Opencode-Go",
-        "Custom OpenAI Compatible",
-        "Ollama",
-        "On-Device AI",
-        "Llama.cpp (Local 7B)"
-    )
+    // JARVIS uses one online cloud gateway; the server routes all model providers.
+    val providers = listOf("JARVIS Cloud")
 
     var providerDropdownExpanded by remember { mutableStateOf(false) }
     var keysSectionExpanded by remember { mutableStateOf(false) }
@@ -139,6 +124,12 @@ fun SettingsScreen(
     var activeImportModelId by remember { mutableStateOf<String?>(null) }
     var importAsCustomModel by remember { mutableStateOf(false) }
     val coroutineScope = rememberCoroutineScope()
+
+    LaunchedEffect(Unit) {
+        if (config.activeProvider != "JARVIS Cloud") {
+            viewModel.updateActiveProvider("JARVIS Cloud")
+        }
+    }
 
     val importLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent()
@@ -443,6 +434,34 @@ fun SettingsScreen(
                 }
             }
 
+            if (!canManageBrain) {
+                item {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
+                        colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = "JARVIS BRAIN",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = AccentCyan
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Automatic intelligence routing is enabled. JARVIS selects the right model for conversation, reasoning, and coding. No model selection is needed.",
+                                color = TextPrimary,
+                                fontSize = 13.sp
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (canManageBrain) {
             // Active LLM Provider Selection Card
             item {
                 Card(
@@ -479,7 +498,7 @@ fun SettingsScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = if (config.activeProvider == "On-Device AI" || config.activeProvider == "Gemma 4 (On-device)") "On-Device AI" else config.activeProvider,
+                                    text = "JARVIS Cloud (Online)",
                                     color = TextPrimary,
                                     fontSize = 15.sp,
                                     fontWeight = FontWeight.SemiBold
@@ -502,7 +521,7 @@ fun SettingsScreen(
                                 DropdownMenuItem(
                                     text = {
                                         Text(
-                                            text = "OFFLINE AI",
+                                            text = "SINGLE CLOUD BRAIN",
                                             color = AccentCyan,
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 11.sp,
@@ -513,50 +532,12 @@ fun SettingsScreen(
                                     onClick = {}
                                 )
                                 DropdownMenuItem(
-                                    text = { Text("On-Device AI", color = TextPrimary, modifier = Modifier.padding(start = 8.dp)) },
+                                    text = { Text("JARVIS Cloud (Online)", color = TextPrimary, modifier = Modifier.padding(start = 8.dp)) },
                                     onClick = {
-                                        viewModel.updateActiveProvider("On-Device AI")
+                                        viewModel.updateActiveProvider("JARVIS Cloud")
                                         providerDropdownExpanded = false
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text("Llama.cpp – Qwen 7B (Local)", color = TextPrimary, modifier = Modifier.padding(start = 8.dp)) },
-                                    onClick = {
-                                        viewModel.updateActiveProvider("Llama.cpp (Local 7B)")
-                                        providerDropdownExpanded = false
-                                    }
-                                )
-
-                                Divider(color = BorderColor, thickness = 1.dp)
-
-                                DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            text = "CLOUD AI",
-                                            color = AccentCyan,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 11.sp,
-                                            fontFamily = FontFamily.Monospace
-                                        )
-                                    },
-                                    enabled = false,
-                                    onClick = {}
-                                )
-                                val cloudProvidersList = providers.filter { it != "On-Device AI" && it != "Llama.cpp (Local 7B)" }
-                                cloudProvidersList.forEach { name ->
-                                    val displayName = when (name) {
-                                        "Google Gemini" -> "Gemini"
-                                        "Anthropic Claude" -> "Claude"
-                                        else -> name
-                                    }
-                                    DropdownMenuItem(
-                                        text = { Text(displayName, color = TextPrimary, modifier = Modifier.padding(start = 8.dp)) },
-                                        onClick = {
-                                            viewModel.updateActiveProvider(name)
-                                            providerDropdownExpanded = false
-                                        }
-                                    )
-                                }
                             }
                         }
 
@@ -771,9 +752,10 @@ fun SettingsScreen(
                     }
                 }
             }
+            }
 
             // Ollama Endpoint Config Card (Visible only when Ollama is selected)
-            if (config.activeProvider == "Ollama") {
+            if (canManageBrain && config.activeProvider == "Ollama") {
                 item {
                     Card(
                         modifier = Modifier
@@ -861,7 +843,7 @@ fun SettingsScreen(
                 }
             }
 
-            if (config.activeProvider == "Llama.cpp (Local 7B)") {
+            if (canManageBrain && config.activeProvider == "Llama.cpp (Local 7B)") {
                 item {
                     val context = LocalContext.current
                     val workManager = remember(context) { androidx.work.WorkManager.getInstance(context) }
@@ -941,7 +923,7 @@ fun SettingsScreen(
             }
 
             // On-Device AI Status Card (Visible when On-Device AI or legacy Gemma provider is selected)
-            if (config.activeProvider == "On-Device AI" || config.activeProvider == "Gemma 4 (On-device)") {
+            if (canManageBrain && (config.activeProvider == "On-Device AI" || config.activeProvider == "Gemma 4 (On-device)")) {
                 item {
                     Card(
                         modifier = Modifier
@@ -1789,7 +1771,7 @@ fun SettingsScreen(
             }
 
             // Copilot Endpoint Config Card (Visible only when Copilot API is selected)
-            if (config.activeProvider == "Copilot API") {
+            if (canManageBrain && config.activeProvider == "Copilot API") {
                 item {
                     Card(
                         modifier = Modifier
@@ -1831,7 +1813,7 @@ fun SettingsScreen(
             }
 
             // Custom OpenAI Compatible Endpoint Config Card (Visible only when Custom OpenAI Compatible is selected)
-            if (config.activeProvider == "Custom OpenAI Compatible") {
+            if (canManageBrain && config.activeProvider == "Custom OpenAI Compatible") {
                 item {
                     Card(
                         modifier = Modifier
@@ -1872,6 +1854,7 @@ fun SettingsScreen(
                 }
             }
 
+            if (canManageBrain) {
             // Provider API Keys Card
             item {
                 Card(
@@ -1952,6 +1935,7 @@ fun SettingsScreen(
                     }
                 }
             }
+            }
 
             // ElevenLabs Voice Synthesis Card
             item {
@@ -1991,7 +1975,7 @@ fun SettingsScreen(
                                 val voiceCtx = androidx.compose.ui.platform.LocalContext.current
                                 val voicePrefs = remember { voiceCtx.getSharedPreferences("jarvis_voice", android.content.Context.MODE_PRIVATE) }
                                 var voiceGender by remember { mutableStateOf(voicePrefs.getString("gender", "male") ?: "male") }
-                                var liveOn by remember { mutableStateOf(voicePrefs.getBoolean("live_gemini", true)) }
+                                var liveOn by remember { mutableStateOf(voicePrefs.getBoolean("live_gemini", false)) }
                                 Row(
                                     modifier = Modifier.fillMaxWidth(),
                                     horizontalArrangement = Arrangement.SpaceBetween,

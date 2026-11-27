@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "project": "JARVIS",
+  "policy": {
+    "publicly_released_assets_only": true,
+    "verify_each_asset_license_separately": true,
+    "private_training_corpora_access_claimed": false,
+    "paid_api_or_compute_allowed": false,
+    "training_started": false
+  },
+  "sources": [
+    {
+      "name": "Kimi K3",
+      "kind": ["source_code", "model_weights", "model_card"],
+      "repository": "https://github.com/MoonshotAI/Kimi-K3",
+      "weights": "https://huggingface.co/moonshotai/Kimi-K3",
+      "license_status": "review_required_per_code_and_checkpoint",
+      "download_status": "not_downloaded",
+      "training_data_status": "full_original_corpus_not_confirmed_public"
+    },
+    {
+      "name": "Kimi K3.1 Pro",
+      "kind": ["model_weights", "model_card"],
+      "weights": "https://huggingface.co/moonshotai/Kimi-K3.1-Pro",
+      "license_status": "review_required_for_this_exact_checkpoint",
+      "download_status": "not_downloaded",
+      "training_data_status": "full_original_corpus_not_confirmed_public"
+    },
+    {
+      "name": "DeepSeek R1",
+      "kind": ["source_code", "model_weights", "technical_report"],
+      "repository": "https://github.com/deepseek-ai/DeepSeek-R1",
+      "license_status": "review_required_per_checkpoint_and_distilled_base_model",
+      "download_status": "not_downloaded",
+      "training_data_status": "full_original_corpus_not_confirmed_public"
+    }
+  ],
+  "datasets": [],
+  "training_runs": []
+}

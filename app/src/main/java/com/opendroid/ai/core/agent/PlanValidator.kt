@@ -24,6 +24,15 @@ class PlanValidator internal constructor(
     ) : this({ actionDispatcher.get().isRegistered(it) }, unknownActionDao, contactResolver)
 
     companion object {
+        /** Hard cap adapted from small-model agent-loop practice: bound actions per plan. */
+        const val MAX_PLAN_STEPS = 10
+
+        internal fun requirePlanStepLimit(stepCount: Int) {
+            require(stepCount <= MAX_PLAN_STEPS) {
+                "Plan has $stepCount steps; the safe limit is $MAX_PLAN_STEPS. Split the task."
+            }
+        }
+
         internal val DATA_PRODUCING_ACTIONS = setOf(
             "GET_DIRECTIONS", "GET_WEATHER", "GET_NEWS", "CALCULATE",
             "CURRENCY_CONVERT", "TRANSLATE", "WEB_SEARCH", "SUMMARIZE_URL",
@@ -115,6 +124,7 @@ class PlanValidator internal constructor(
     }
 
     suspend fun validateAndFix(plan: Plan, context: Context): Plan {
+        requirePlanStepLimit(plan.steps.size)
         val finalSteps = mutableListOf<PlanStep>()
         var currentOrder = 1
         val steps = withoutOrphanedAsks(plan.steps)
@@ -219,6 +229,7 @@ class PlanValidator internal constructor(
         }
 
         val cleanedSteps = removeBadDependencies(finalSteps)
+        requirePlanStepLimit(cleanedSteps.size)
         return plan.copy(steps = cleanedSteps, estimatedSteps = cleanedSteps.size)
     }
 

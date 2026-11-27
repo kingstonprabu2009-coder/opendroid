@@ -1,5 +1,5 @@
 # JARVIS Cloud API — foundation
-This backend scaffold is fail-closed. GET /health is active. Better Auth routes under /api/auth/* are enabled only when BETTER_AUTH_SECRET and BETTER_AUTH_URL are configured. Authenticated chat, team membership, and token-based invitations are implemented; deployment, verified public signup/email delivery, quotas, and production integration checks remain pending.
+This backend scaffold is fail-closed. GET /health is active. Better Auth routes under /api/auth/* are enabled only when BETTER_AUTH_SECRET and BETTER_AUTH_URL are configured. Authenticated chat, automatic model routing, daily usage limits, team membership, and token-based invitations are implemented; deployment, verified public signup/email delivery, and production integration checks remain pending.
 
 - Initial free-tier development target: Cloudflare Workers + D1.
 - Android is a client; credentials and model inference stay server-side.
@@ -7,6 +7,8 @@ This backend scaffold is fail-closed. GET /health is active. Better Auth routes 
   tool execution, and a replaceable adapter for a suitably licensed open-weight model.
 - Authentication uses Better Auth with D1-native storage; password hashing and session handling are delegated to the maintained library. Never store plaintext passwords. Email delivery/verification is not configured yet, so do not expose public registration until that control is completed.
 - Personal conversations are private; team resources require server-side membership checks.
+- Migration `0006_user_capacity_limit.sql` enforces a hard maximum of 10 registered accounts at the D1 database boundary, including concurrent sign-up attempts.
+- Migration `0007_ai_daily_usage.sql` stores per-account daily AI request counts. The default limit is 10 requests per account per UTC day (`JARVIS_DAILY_REQUEST_LIMIT` can be set from 1 to 100); quota updates are atomic and fail closed.
 - Never log prompts, message bodies, tokens, credentials, or private content.
 
 ## Local development
@@ -18,6 +20,8 @@ This backend scaffold is fail-closed. GET /health is active. Better Auth routes 
 6. Start: npm run dev; check http://localhost:8787/health.
 7. Set local secrets in an untracked `.dev.vars` file: `BETTER_AUTH_SECRET` (at least 32 random characters), `BETTER_AUTH_URL=http://localhost:8787`, and `JARVIS_OWNER_EMAIL` (the one exact owner account email). Never commit `.dev.vars`.
 8. Run npm test and npm run typecheck.
+
+Termux note: the installed Wrangler runtime currently fails on Android arm64 because its `workerd` binary does not support this platform. Source editing and TypeScript work can continue in Termux, but local Worker emulation/deployment needs a supported host or CI runner. This is a platform limitation, not a JARVIS source error.
 
 ## Cost and deployment guardrails
 Do not provision paid services or GPU instances in this phase. Free-tier limits can
@@ -46,13 +50,18 @@ Configure secrets only through the provider secret manager.
 
 ## JARVIS model gateway contract
 - `POST /v1/chat` requires a valid Better Auth session (session cookie is checked server-side).
-- Request body: `{ "application_context": "...", "max_tokens": 1200, "messages": [{ "role": "user" | "assistant", "content": "..." }] }`.
+- Request body: `{ "application_context": "...", "max_tokens": 1200, "messages": [{ "role": "user" | "assistant", "content": "..." }] }`. For a user image, content may instead be a short array containing text and an `image_url` whose URL must be a bounded base64 data URL (`data:image/jpeg;base64,...`, PNG, or WebP). Remote image URLs are rejected.
 - The server always prepends its own safety policy. The optional app context is length-limited and cannot grant permissions or authorize actions.
-- Requests are limited to 32 messages, 12,000 characters per message, 48,000 total message characters, 24,000 context characters, and 4,096 output tokens.
-- Inference uses the optional Cloudflare Workers AI binding `AI`; model selection is `JARVIS_MODEL`, defaulting to `@cf/google/gemma-4-26b-a4b-it` (reasoning, function calling, multilingual support, and a 256K-token context window; image input is not yet enabled in the Android cloud client). Set `JARVIS_MODEL` to another currently supported model when needed.
-- Cost guardrail: Cloudflare Workers AI currently documents a 10,000-Neuron daily free allocation. Gemma 4 is listed at 9,091 Neurons per million input tokens and 27,273 per million output tokens; the allowance is shared across requests and can be exhausted. Treat this as limited free usage, never unlimited or guaranteed zero-cost service.
-- If the binding is absent, the route returns `503 model_not_configured`. No fake response or vendor fallback is used.
-- This is an open-weight hosted inference adapter for the JARVIS agent runtime, not a claim that JARVIS has trained its own foundation model. Model availability, account eligibility, and quotas must be confirmed before deployment.
+- Requests are limited to 32 messages, 12,000 text characters per message, 48,000 total text characters, 24,000 context characters, 5.5 million encoded image characters total, and 4,096 output tokens.
+- JARVIS is online-only: the Android app routes chat and planning through the single authenticated `JARVIS Cloud` gateway. It does not silently switch to local/on-device inference or direct vendor APIs. The server Brain Router selects one cloud model per request and tries the next configured cloud provider only if that provider fails; it never fans the same prompt out to every provider concurrently.
+- Free-only cloud routing: automatic general, reasoning, and coding routes use the Workers AI free daily allocation. The application allowlist rejects paid model IDs and external paid API routes.
+- Image requests use only vision-capable routes: Gemma 4 on Workers AI by default; GPT-6.2 Astra Fast is added only when premium inference is explicitly enabled. Kimi and text-only candidates are not sent image payloads. The Android app forwards screenshot JPEG data through the same authenticated Cloud endpoint; image data is size-limited and remote image URLs are rejected.
+- No paid provider secrets, paid model overrides, or billing-backed fallbacks are supported. Keep the Cloudflare account on the Workers Free plan; Workers AI free usage is limited to 10,000 Neurons per day and requests stop when the free allowance is exhausted.
+- Optional free-only route overrides: JARVIS_MODEL_GENERAL, JARVIS_MODEL_REASONING, JARVIS_MODEL_CODING, and JARVIS_MODEL_FALLBACK. The legacy JARVIS_MODEL is also restricted to the free allowlist. Any Kimi API, OpenAI API, paid Workers AI model, or unknown model ID is rejected.
+- Cost guardrail: Cloudflare Workers AI documents a 10,000-Neuron daily free allocation, shared across requests. Some large hosted models require a paid Workers plan. Treat the allowance as limited free usage, never unlimited or guaranteed zero-cost service.
+- The official `MoonshotAI/Kimi-K3` GitHub repository contains the model card, Kimi K3 license, and technical report; the actual model weights are published separately through Moonshot's Hugging Face organization. Forking the GitHub documentation repository alone does not copy or run the model. Kimi K3 is a 2.8T-total / 104B-active-parameter model and cannot realistically run on this Termux phone; JARVIS uses the official hosted Moonshot API unless a separately funded, suitably sized GPU cluster is provided. The Kimi K3 license permits broad reuse subject to its stated conditions; preserve the license and review its Model-as-a-Service clause before offering hosted inference to third parties. See `../docs/JARVIS_BRAIN_ARCHITECTURE.md`.
+- If no configured OpenAI/Moonshot secret or Workers AI binding is available, the route returns `503 model_not_configured`. If both selected and fallback models fail, it returns a generic `502 model_unavailable`; it does not invent a response or silently call a paid vendor.
+- This is a multi-provider hosted inference gateway with automatic routing, not a claim that JARVIS has trained its own foundation model. Model availability, account eligibility, and quotas must be confirmed before deployment.
 
 ## Conversation isolation (backend foundation)
 - `GET /v1/conversations` lists only the signed-in user's personal conversations (`team_id IS NULL`).

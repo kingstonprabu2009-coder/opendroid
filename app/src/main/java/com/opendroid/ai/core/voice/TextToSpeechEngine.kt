@@ -121,7 +121,7 @@ class TextToSpeechEngine(
         }
     }
 
-    /** Text with Tamil letters is read by the Tamil voice; Tanglish / English by Indian English. */
+    /** Tamil-script text and recognized Tanglish use the Tamil voice; English uses Indian English. */
     private fun hasTamil(text: String): Boolean = text.any { it in '\u0B80'..'\u0BFF' }
 
     /** Voice choice saved by Settings: "male", "female" or "phone". */
@@ -180,6 +180,13 @@ class TextToSpeechEngine(
      */
     fun speak(rawText: String, utteranceId: String = UUID.randomUUID().toString()): String {
         val text = cleanForSpeech(rawText)
+        // Convert only recognizable Tanglish for the local Tamil voice. English and
+        // already-Tamil replies keep their original wording.
+        val localSpeechText = if (!hasTamil(text) && TanglishToTamil.looksTanglish(text)) {
+            TanglishToTamil.convert(text)
+        } else {
+            text
+        }
         if (text.isBlank()) {
             mainHandler.post { onCompletionListener?.invoke(utteranceId) }
             return utteranceId
@@ -209,10 +216,10 @@ class TextToSpeechEngine(
                     val engine = tts
                     var started = false
                     if (isInitialized && engine != null) {
-                        prepareVoiceFor(engine, text)
+                        prepareVoiceFor(engine, localSpeechText)
                         // Long replies are split at sentence ends and queued, so Android TTS
                         // never cuts or drops a reply for being too long.
-                        val parts = splitForSpeech(text, minOf(TextToSpeech.getMaxSpeechInputLength() - 200, 1500))
+                        val parts = splitForSpeech(localSpeechText, minOf(TextToSpeech.getMaxSpeechInputLength() - 200, 1500))
                         started = true
                         parts.forEachIndexed { i, part ->
                             val last = i == parts.lastIndex

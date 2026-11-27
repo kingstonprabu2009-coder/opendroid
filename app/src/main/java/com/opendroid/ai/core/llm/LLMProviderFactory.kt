@@ -93,37 +93,15 @@ class LLMProviderFactory @Inject constructor(
         )
     }
 
-    suspend fun getActiveProvider(): LLMProvider {
-        val config = settingsRepository.llmConfig.first()
-        return getProviderByName(ProviderCatalog.canonicalName(config.activeProvider))
-    }
+    /** JARVIS is cloud-only: every chat request uses the single authenticated cloud brain. */
+    suspend fun getActiveProvider(): LLMProvider = getProviderByName("JARVIS Cloud")
 
     /**
-     * Returns the active planner followed only by explicitly configured,
-     * available fallbacks. Risk is evaluated before any alternate provider is
-     * contacted; high-impact plans never cross a provider boundary silently.
+     * The cloud gateway is the only planner provider. All specialist selection
+     * and recovery happen inside the single JARVIS Cloud Brain Router.
      */
-    suspend fun getPlanningProviders(actionNames: Collection<String>): List<LLMProvider> {
-        val config = settingsRepository.llmConfig.first()
-        val activeName = ProviderCatalog.canonicalName(config.activeProvider)
-        val active = getProviderByName(activeName)
-        // Local-only mode must never silently spill over to a cloud provider,
-        // even when older settings contain explicit cloud fallback entries.
-        if (activeName == "Llama.cpp (Local 7B)") return listOf(active)
-        val risk = ActionSchema.highestRisk(actionNames)
-        val fallbackNames = ProviderSelectionPolicy.explicitFallbacks(
-            activeProvider = activeName,
-            configuredFallbacks = config.fallbackProviders,
-            risk = risk
-        )
-
-        val availableFallbacks = fallbackNames.mapNotNull { providerName ->
-            if (!isConfigured(config, providerName)) return@mapNotNull null
-            val provider = getProviderByName(providerName)
-            provider.takeIf { runCatching { it.isAvailable() }.getOrDefault(false) }
-        }
-        return listOf(active) + availableFallbacks
-    }
+    suspend fun getPlanningProviders(actionNames: Collection<String>): List<LLMProvider> =
+        listOf(getProviderByName("JARVIS Cloud"))
 
     suspend fun recordPlanningLatency(response: LLMResponse): LatencyBudgetResult? =
         runCatching { onDeviceLatencyTracker.recordPlanning(response) }.getOrNull()
