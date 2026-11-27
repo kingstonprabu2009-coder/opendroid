@@ -15,8 +15,11 @@ android {
         applicationId "com.opendroid.ai"
         minSdk 26
         targetSdk 36
-        versionCode 11
-        versionName "1.1.0"
+        // Every CI APK gets a higher versionCode so Android upgrades the existing
+        // signed installation instead of treating it as a separate/older app.
+        def jarvisBuildNumber = Math.max(12, (System.getenv("GITHUB_RUN_NUMBER") ?: "12").toInteger())
+        versionCode jarvisBuildNumber
+        versionName "1.1.${jarvisBuildNumber}"
         // Empty by default: cloud features fail closed until a real HTTPS deployment URL is supplied.
         def jarvisCloudUrl = (project.findProperty("JARVIS_CLOUD_BASE_URL") ?: "https://jarvis-cloud-api.kingstonprabu2009.workers.dev").toString()
         buildConfigField "String", "JARVIS_CLOUD_BASE_URL", "\"${jarvisCloudUrl}\""
