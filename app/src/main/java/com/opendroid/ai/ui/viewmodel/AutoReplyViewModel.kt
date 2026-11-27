@@ -12,7 +12,6 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -82,11 +81,10 @@ class AutoReplyViewModel internal constructor(
     fun flushPendingConfig() {
         debounceJob?.cancel()
         debounceJob = null
-        // Start immediately so lifecycle disposal cannot race a queued nested launch.
-        writeScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            // Lifecycle callbacks can run while the owning screen/ViewModel is being torn down.
-            // Once a flush begins, finish the DataStore transaction even if its caller is
-            // cancelled; the write scope itself is deliberately independent of viewModelScope.
+        // A lifecycle flush must finish before the screen can be disposed or the app
+        // backgrounded. Run the DataStore transaction on IO and wait for its completion;
+        // otherwise the process may suspend the independent write scope after the callback.
+        runBlocking(Dispatchers.IO) {
             withContext(NonCancellable) {
                 persistPendingConfig()
             }
