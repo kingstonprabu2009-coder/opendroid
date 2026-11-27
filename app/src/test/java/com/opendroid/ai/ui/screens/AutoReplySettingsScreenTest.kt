@@ -82,7 +82,13 @@ class AutoReplySettingsScreenTest {
         }
         clearCannedReplyField()
 
-        composeRule.runOnIdle { lifecycleOwner.lifecycle.currentState = Lifecycle.State.CREATED }
+        // Drive the real lifecycle events explicitly; assigning currentState can collapse
+        // transitions in Robolectric and fail to exercise the ON_PAUSE observer reliably.
+        composeRule.runOnIdle {
+            lifecycleOwner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            lifecycleOwner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        }
+        composeRule.waitForIdle()
 
         assertCannedReplyCleared(repository)
     }
