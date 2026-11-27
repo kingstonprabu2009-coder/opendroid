@@ -422,18 +422,13 @@ fun ChatScreen(
                             )
                         }
                     }
-                    items(history, key = { it.id }) { msg ->
-                        AnimatedVisibility(
-                            visible = true,
-                            enter = fadeIn(tween(220)) + slideInVertically(tween(220)) { it / 12 }
-                        ) {
-                            ChatBubble(
-                                message = msg,
-                                viewModel = viewModel,
-                                context = context,
-                                onEditRequested = { startEditingMessage(it) }
-                            )
-                        }
+                    items(history, key = { it.id }, contentType = { "chat-message" }) { msg ->
+                        ChatBubble(
+                            message = msg,
+                            viewModel = viewModel,
+                            context = context,
+                            onEditRequested = { startEditingMessage(it) }
+                        )
                     }
 
                     // Show a typing/thinking bubble if thinking - scoped to this chat, see

@@ -109,7 +109,7 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
                 }
             })
             socket = ws
-            val completed = done.await(12, TimeUnit.SECONDS)
+            val completed = done.await(2500, TimeUnit.MILLISECONDS)
             if (!completed) ws.cancel()
             else try { ws.close(1000, null) } catch (_: Exception) {}
         } finally {

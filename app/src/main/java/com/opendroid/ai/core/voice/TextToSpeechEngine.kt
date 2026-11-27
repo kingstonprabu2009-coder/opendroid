@@ -209,9 +209,7 @@ class TextToSpeechEngine(
             val provider = voiceProvider()
 
             if (provider == "elevenlabs" && apiKey.isBlank()) {
-                showProblem("ElevenLabs select pannirukkinga, aana API key set pannala. Voice settings-la Edge Neural or Phone TTS choose pannunga.")
-                mainHandler.post { onCompletionListener?.invoke(utteranceId) }
-                return@launch
+                showProblem("ElevenLabs key missing; using phone voice for this reply.")
             }
 
             if (provider == "edge") {
@@ -221,10 +219,9 @@ class TextToSpeechEngine(
                     if (success) return@launch
                 } catch (_: Exception) { }
                 if (generation.get() == speechGeneration) {
-                    showProblem("Selected Edge Neural voice connect aagala. Internet check pannitu voice settings-la Phone TTS select pannunga.")
-                    mainHandler.post { onCompletionListener?.invoke(utteranceId) }
-                }
-                return@launch
+                    showProblem("Edge Neural unavailable; using phone voice for this reply.")
+                } else return@launch
+                // Fall through to the built-in Android TTS fallback below.
             }
 
             if (provider == "elevenlabs" && apiKey.isNotEmpty()) {
@@ -233,17 +230,16 @@ class TextToSpeechEngine(
                     if (success) return@launch
                     showProblem("Selected ElevenLabs voice could not generate audio. Check its key and Voice ID, or choose another voice engine.")
                 } catch (_: Exception) {
-                    showProblem("Selected ElevenLabs voice failed. Check the key and connection, or choose another voice engine.")
+                    showProblem("ElevenLabs unavailable; using phone voice for this reply.")
                 }
-                mainHandler.post { onCompletionListener?.invoke(utteranceId) }
-                return@launch
+                // Fall through to the built-in Android TTS fallback below.
             }
 
             // Phone TTS is used only when the user explicitly selects it.
             // Local fallback — must run on main thread. Not after stop(): a cancelled
             // ElevenLabs fetch fails, and must not turn into local speech.
             // The first reply often arrives before the engine is ready, so wait for it.
-            withTimeoutOrNull(5000) { ready.await() }
+            withTimeoutOrNull(1500) { ready.await() }
             if (generation.get() == speechGeneration) {
                 kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
                     val engine = tts

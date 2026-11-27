@@ -47,7 +47,7 @@ class GroqSpeech(
         } else {
             onRecorded()
             val raw = withContext(Dispatchers.IO) { transcribe(apiKey, wav(pcm)) }
-            if (raw.isBlank()) Outcome.NoSpeech else Outcome.Heard(toTanglish(apiKey, raw))
+            if (raw.isBlank()) Outcome.NoSpeech else Outcome.Heard(raw)
         }
     } catch (e: CancellationException) {
         throw e
@@ -196,6 +196,6 @@ class GroqSpeech(
         const val FRAME = 1600
         const val MAX_FRAMES = 300          // 30 s
         const val START_TIMEOUT_FRAMES = 60 // 6 s without speech
-        const val END_SILENCE_FRAMES = 7    // 0.7 s pause: faster response without cutting normal short pauses
+        const val END_SILENCE_FRAMES = 5    // 0.5 s pause: start transcription sooner after speech ends
     }
 }

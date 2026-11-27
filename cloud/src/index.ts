@@ -205,7 +205,7 @@ function createAuth(env: Env) {
       }
     },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
-    rateLimit: { enabled: true, storage: "database", window: 60, max: 30, customRules: {
+    rateLimit: { enabled: true, storage: "database", window: 60, max: 6000, customRules: {
       "/sign-in/email": { window: 60, max: 5 },
       "/sign-up/email": { window: 60, max: 3 },
       "/request-password-reset": { window: 60, max: 3 },
