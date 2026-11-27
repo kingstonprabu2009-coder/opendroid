@@ -78,8 +78,10 @@ fun ChatErrorUiState.primaryAction(): ChatErrorPrimaryAction = when (category) {
     LLMError.QuotaExhausted -> ChatErrorPrimaryAction.CHOOSE_PROVIDER
     LLMError.ModelUnavailable -> ChatErrorPrimaryAction.CHOOSE_MODEL
     LLMError.RequestInvalid -> ChatErrorPrimaryAction.EDIT_MESSAGE
+    // A user-triggered retry is safe to offer for network failures even when the
+    // provider wrapper deliberately avoids automatic POST retries after a timeout.
+    LLMError.Network -> ChatErrorPrimaryAction.RETRY
     LLMError.RateLimited,
-    LLMError.Network,
     LLMError.ServerError,
     LLMError.MalformedResponse,
     LLMError.SafeFallbackUnavailable,

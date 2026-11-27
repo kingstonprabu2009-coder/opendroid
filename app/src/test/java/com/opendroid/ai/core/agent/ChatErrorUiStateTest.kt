@@ -109,5 +109,7 @@ class ChatErrorUiStateTest {
 
         assertTrue(state.guidance().contains("OpenAI"))
         assertFalse(state.guidance().contains("JARVIS Cloud"))
+        // A manual retry is explicit user intent; automatic duplicate POST retries remain disabled.
+        assertEquals(ChatErrorPrimaryAction.RETRY, state.primaryAction())
     }
 }
