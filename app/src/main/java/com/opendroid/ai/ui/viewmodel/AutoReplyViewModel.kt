@@ -17,6 +17,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -81,7 +83,12 @@ class AutoReplyViewModel internal constructor(
         debounceJob = null
         // Start immediately so lifecycle disposal cannot race a queued nested launch.
         writeScope.launch(start = CoroutineStart.UNDISPATCHED) {
-            persistPendingConfig()
+            // Lifecycle callbacks can run while the owning screen/ViewModel is being torn down.
+            // Once a flush begins, finish the DataStore transaction even if its caller is
+            // cancelled; the write scope itself is deliberately independent of viewModelScope.
+            withContext(NonCancellable) {
+                persistPendingConfig()
+            }
         }
     }
 
@@ -94,10 +101,14 @@ class AutoReplyViewModel internal constructor(
         // Each write takes the newest config, and the lock keeps an older write from landing
         // after it. Flush starts this suspend function immediately from lifecycle callbacks.
         writeMutex.withLock {
-            val toWrite = pendingConfig.getAndSet(null) ?: return@withLock
+            val toWrite = pendingConfig.get() ?: return@withLock
             try {
                 settingsRepository.updateAutoReplyConfig(toWrite)
+                // Clear only the exact snapshot successfully persisted. If the user typed
+                // again while this transaction was running, keep the newer value pending.
+                pendingConfig.compareAndSet(toWrite, null)
             } catch (e: Exception) {
+                // Keep the pending value so a later lifecycle flush can retry it.
                 android.util.Log.e("AutoReplySettings", "Failed to save config: ${e.message}", e)
             }
         }
