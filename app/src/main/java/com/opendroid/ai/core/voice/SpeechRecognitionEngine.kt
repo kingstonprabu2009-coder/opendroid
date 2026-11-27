@@ -3,6 +3,7 @@ package com.opendroid.ai.core.voice
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Build
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
@@ -11,6 +12,7 @@ class SpeechRecognitionEngine(private val context: Context) {
 
     private var speechRecognizer: SpeechRecognizer? = null
     private var recognizerIntent: Intent? = null
+    private var usingOnDeviceRecognition = false
 
     // Identifies the currently active recognition session. Every startListening() call mints a
     // new token and each RecognitionListener callback closure captures the token it was created
@@ -53,8 +55,18 @@ class SpeechRecognitionEngine(private val context: Context) {
 
     private fun initializeRecognizer() {
         if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            // Prefer offline recognition when Android has an installed on-device engine.
+            // This avoids depending on a second network service just to capture a command.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+            ) {
+                speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+                usingOnDeviceRecognition = true
+            } else {
+                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+            }
             recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+                putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, usingOnDeviceRecognition)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, languageTag)
@@ -98,8 +110,12 @@ class SpeechRecognitionEngine(private val context: Context) {
                     SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
                     SpeechRecognizer.ERROR_CLIENT -> "Client side error"
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
-                    SpeechRecognizer.ERROR_NETWORK -> "Network error"
-                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                    SpeechRecognizer.ERROR_NETWORK -> if (usingOnDeviceRecognition) {
+                        "On-device speech service failed. Check that Tamil offline speech data is installed."
+                    } else {
+                        "Android speech recognition network unavailable. Check internet or install offline Tamil speech data."
+                    }
+                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition timed out. Check internet or try offline speech data."
                     SpeechRecognizer.ERROR_NO_MATCH -> "No speech match found"
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognition engine busy"
                     SpeechRecognizer.ERROR_SERVER -> "Server error"
@@ -132,11 +148,23 @@ class SpeechRecognitionEngine(private val context: Context) {
             override fun onEvent(eventType: Int, params: Bundle?) {}
         })
 
-        speechRecognizer?.startListening(recognizerIntent)
+        try {
+            speechRecognizer?.startListening(recognizerIntent)
+        } catch (error: Exception) {
+            unmuteBeep()
+            if (sessionId == activeSessionId) {
+                onError(error.message?.take(120)?.let { "Could not start speech recognition: $it" }
+                    ?: "Could not start speech recognition. Try again.")
+            }
+        }
     }
 
     fun stopListening() {
-        speechRecognizer?.stopListening()
+        try {
+            speechRecognizer?.stopListening()
+        } catch (_: Exception) {
+            unmuteBeep()
+        }
     }
 
     /**
@@ -146,7 +174,11 @@ class SpeechRecognitionEngine(private val context: Context) {
     fun cancel() {
         activeSessionId += 1
         unmuteBeep()
-        speechRecognizer?.cancel()
+        try {
+            speechRecognizer?.cancel()
+        } catch (_: Exception) {
+            // Session is invalidated regardless; stale callbacks are ignored.
+        }
     }
 
     fun destroy() {
@@ -154,7 +186,11 @@ class SpeechRecognitionEngine(private val context: Context) {
         // this engine (and the owner that created it) has been disposed.
         activeSessionId += 1
         unmuteBeep()
-        speechRecognizer?.destroy()
+        try {
+            speechRecognizer?.destroy()
+        } catch (_: Exception) {
+            // Destruction is best-effort during UI disposal.
+        }
         speechRecognizer = null
     }
 }
