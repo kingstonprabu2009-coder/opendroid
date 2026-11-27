@@ -4,6 +4,7 @@ import com.opendroid.ai.core.llm.error.LLMError
 import com.opendroid.ai.core.llm.error.LLMErrorMapper
 import com.opendroid.ai.core.llm.error.ProviderErrorDetail
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -95,5 +96,18 @@ class ChatErrorUiStateTest {
             )
         )
         assertEquals(ChatErrorUiState.Phase.Final, state.phase)
+    }
+
+    @Test
+    fun `network guidance names the selected provider instead of always blaming JARVIS Cloud`() {
+        val failure = com.opendroid.ai.core.llm.error.LLMErrorMapper.fromThrowable(
+            "OpenAI",
+            "gpt-test",
+            java.net.SocketTimeoutException("read timed out")
+        )
+        val state = ChatErrorUiState.fromException("session", "request", "run", failure)
+
+        assertTrue(state.guidance().contains("OpenAI"))
+        assertFalse(state.guidance().contains("JARVIS Cloud"))
     }
 }

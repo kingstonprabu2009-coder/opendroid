@@ -109,7 +109,7 @@ fun ChatErrorUiState.guidance(): String = when (category) {
     LLMError.RateLimited -> "Wait a moment, then retry."
     LLMError.ModelUnavailable -> "Choose an available model, then retry."
     LLMError.RequestInvalid -> "Edit the message and try again."
-    LLMError.Network -> "JARVIS Cloud could not connect. Check internet and retry."
+    LLMError.Network -> "Network connection to $provider failed or timed out. Check your internet connection and retry."
     LLMError.ServerError -> "Try again in a moment."
     LLMError.MalformedResponse -> "Try again, or check technical details."
     LLMError.SafeFallbackUnavailable -> "Choose and configure an explicit fallback provider, then retry."

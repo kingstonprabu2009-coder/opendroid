@@ -961,6 +961,8 @@ class AgentLoop @Inject constructor(
             val replyId = UUID.randomUUID().toString()
             var currentReplyText = ""
             var inserted = false
+            var persistedLength = 0
+            var lastPersistAt = 0L
             val replyMsg = ChatMessage(
                 id = replyId,
                 text = currentReplyText,
@@ -981,11 +983,20 @@ class AgentLoop @Inject constructor(
                 ).collect { chunk ->
                     if (chunk.isEmpty()) return@collect
                     currentReplyText += chunk
-                    conversationRepository.insertMessage(sessionId, replyMsg.copy(text = currentReplyText))
-                    inserted = true
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    // Persist partial output periodically, not once per token. Per-token
+                    // Room writes trigger repeated full-history emissions and auto-scrolls.
+                    if (!inserted || currentReplyText.length - persistedLength >= 96 ||
+                        now - lastPersistAt >= 140L
+                    ) {
+                        conversationRepository.insertMessage(sessionId, replyMsg.copy(text = currentReplyText))
+                        inserted = true
+                        persistedLength = currentReplyText.length
+                        lastPersistAt = now
+                    }
                 }
             } catch (streamError: CancellationException) {
-                if (inserted && currentReplyText.isNotBlank()) {
+                if (currentReplyText.isNotBlank()) {
                     // This coroutine is already cancelled; without NonCancellable the
                     // suspend insert would abort immediately and the "Stopped" partial
                     // would never persist.
@@ -998,7 +1009,7 @@ class AgentLoop @Inject constructor(
                 }
                 throw streamError
             } catch (streamError: LLMException) {
-                val partialId = if (inserted && currentReplyText.isNotBlank()) {
+                val partialId = if (currentReplyText.isNotBlank()) {
                     incompleteMessageIds.add(replyId)
                     conversationRepository.insertMessage(sessionId, replyMsg.copy(text = currentReplyText))
                     replyId

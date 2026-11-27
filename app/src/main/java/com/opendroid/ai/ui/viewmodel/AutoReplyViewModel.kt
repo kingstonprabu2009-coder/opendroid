@@ -12,6 +12,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -62,17 +63,21 @@ class AutoReplyViewModel internal constructor(
         if (debounce) {
             debounceJob = writeScope.launch {
                 delay(debounceMillis)
-                writePendingConfig()
+                persistPendingConfig()
             }
         } else {
-            writePendingConfig()
+            flushPendingConfig()
         }
     }
 
     /** Writes a debounced edit now instead of waiting out the delay. */
     fun flushPendingConfig() {
         debounceJob?.cancel()
-        writePendingConfig()
+        debounceJob = null
+        // Start immediately so lifecycle disposal cannot race a queued nested launch.
+        writeScope.launch(start = CoroutineStart.UNDISPATCHED) {
+            persistPendingConfig()
+        }
     }
 
     override fun onCleared() {
@@ -80,17 +85,15 @@ class AutoReplyViewModel internal constructor(
     }
 
     // A separate job, so cancelling the debounce can never interrupt a write already under way.
-    private fun writePendingConfig() {
-        writeScope.launch {
-            // Each write takes the newest config, and the lock keeps an older write from landing
-            // after it.
-            writeMutex.withLock {
-                val toWrite = pendingConfig.getAndSet(null) ?: return@withLock
-                try {
-                    settingsRepository.updateAutoReplyConfig(toWrite)
-                } catch (e: Exception) {
-                    android.util.Log.e("AutoReplySettings", "Failed to save config: ${e.message}", e)
-                }
+    private suspend fun persistPendingConfig() {
+        // Each write takes the newest config, and the lock keeps an older write from landing
+        // after it. Flush starts this suspend function immediately from lifecycle callbacks.
+        writeMutex.withLock {
+            val toWrite = pendingConfig.getAndSet(null) ?: return@withLock
+            try {
+                settingsRepository.updateAutoReplyConfig(toWrite)
+            } catch (e: Exception) {
+                android.util.Log.e("AutoReplySettings", "Failed to save config: ${e.message}", e)
             }
         }
     }
