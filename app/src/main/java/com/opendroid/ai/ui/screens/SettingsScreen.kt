@@ -380,6 +380,13 @@ fun SettingsScreen(
                                     Text("Create Account")
                                 }
                             }
+                            TextButton(
+                                onClick = viewModel::requestJarvisPasswordReset,
+                                enabled = jarvisAccountStatus != "Requesting password reset..." && jarvisAccountStatus != "Signing in..." && jarvisAccountStatus != "Creating account...",
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Forgot password? Email me a reset link")
+                            }
                         }
                     }
                 }

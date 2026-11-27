@@ -19,6 +19,10 @@ export interface Env {
   JARVIS_DAILY_REQUEST_LIMIT?: string;
   /** Exact account email allowed to hold the single platform Owner role. Set as a server secret. */
   JARVIS_OWNER_EMAIL?: string;
+  /** Resend API key used only for account password-recovery email. */
+  RESEND_API_KEY?: string;
+  /** Verified sender address/domain configured in Resend. */
+  RESEND_FROM_EMAIL?: string;
 }
 
 /** True only when at least one selected candidate has its matching cloud runtime configured. */
@@ -171,11 +175,40 @@ function createAuth(env: Env) {
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
     trustedOrigins: [env.ALLOWED_ORIGIN],
-    emailAndPassword: { enabled: true, minPasswordLength: 12, maxPasswordLength: 128 },
+    emailAndPassword: {
+      enabled: true,
+      minPasswordLength: 12,
+      maxPasswordLength: 128,
+      resetPasswordTokenExpiresIn: 30 * 60,
+      sendResetPassword: async ({ user, url }) => {
+        if (!env.RESEND_API_KEY || !env.RESEND_FROM_EMAIL) {
+          throw new Error("Password recovery email is not configured on JARVIS Cloud.");
+        }
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            "authorization": `Bearer ${env.RESEND_API_KEY}`,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            from: env.RESEND_FROM_EMAIL,
+            to: [user.email],
+            subject: "Reset your JARVIS Cloud password",
+            html: `<div style="font-family:Arial,sans-serif;max-width:520px;margin:auto;padding:24px;color:#172033"><h2>JARVIS Cloud password reset</h2><p>We received a request to reset the password for your JARVIS account.</p><p><a href="${url}" style="display:inline-block;padding:12px 18px;background:#087eaa;color:#fff;text-decoration:none;border-radius:8px">Set a new password</a></p><p>This link expires in 30 minutes and can be used once. If you did not request this, ignore this email.</p></div>`
+          })
+        });
+        if (!response.ok) {
+          const detail = await response.text();
+          console.error("Password recovery email delivery failed", response.status, detail.slice(0, 300));
+          throw new Error("Could not send password recovery email.");
+        }
+      }
+    },
     session: { expiresIn: 60 * 60 * 24 * 7, updateAge: 60 * 60 * 24 },
     rateLimit: { enabled: true, storage: "database", window: 60, max: 30, customRules: {
       "/sign-in/email": { window: 60, max: 5 },
       "/sign-up/email": { window: 60, max: 3 },
+      "/request-password-reset": { window: 60, max: 3 },
     } },
     advanced: {
       ipAddress: { ipAddressHeaders: ["cf-connecting-ip"] },
@@ -201,7 +234,11 @@ export default {
     }
     if (requestOrigin && !corsOrigin) return json({ error: "origin_not_allowed" }, 403);
     if (request.method === "GET" && url.pathname === "/health") {
-      return json({ service: "jarvis-cloud-api", status: "ok", environment: env.JARVIS_ENV, auth: env.BETTER_AUTH_SECRET && env.BETTER_AUTH_URL ? "configured" : "not_configured", ai: env.AI ? "configured" : "not_configured", brain: "automatic_model_routing" }, 200, corsOrigin);
+      return json({ service: "jarvis-cloud-api", status: "ok", environment: env.JARVIS_ENV, auth: env.BETTER_AUTH_SECRET && env.BETTER_AUTH_URL ? "configured" : "not_configured", passwordRecovery: env.RESEND_API_KEY && env.RESEND_FROM_EMAIL ? "configured" : "not_configured", ai: env.AI ? "configured" : "not_configured", brain: "automatic_model_routing" }, 200, corsOrigin);
+    }
+    if (request.method === "GET" && url.pathname === "/reset-password-page") {
+      const page = `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>JARVIS Password Reset</title><style>body{font-family:Arial,sans-serif;background:#071522;color:#eaf7ff;display:grid;place-items:center;min-height:100vh;margin:0}.card{width:min(420px,calc(100% - 40px));padding:26px;background:#10283a;border:1px solid #087eaa;border-radius:16px}input,button{box-sizing:border-box;width:100%;padding:13px;margin-top:12px;border-radius:8px;font-size:16px}input{background:#071522;color:white;border:1px solid #426174}button{background:#087eaa;color:white;border:0;font-weight:bold}p{color:#b8cbd8;line-height:1.5}#status{min-height:24px;font-size:14px}</style><main class="card"><h2>Set a new JARVIS password</h2><p>Enter a new password with at least 12 characters. This changes the password for your existing account.</p><form id="reset"><input id="password" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="New password" required><input id="confirm" type="password" minlength="12" maxlength="128" autocomplete="new-password" placeholder="Confirm new password" required><button id="submit" type="submit">Update password</button></form><p id="status" role="status"></p></main><script>const token=new URLSearchParams(location.search).get('token');const form=document.getElementById('reset');const status=document.getElementById('status');form.addEventListener('submit',async e=>{e.preventDefault();const password=document.getElementById('password').value;const confirm=document.getElementById('confirm').value;if(!token){status.textContent='Reset link is missing or invalid.';return}if(password.length<12||password.length>128){status.textContent='Password must be 12–128 characters.';return}if(password!==confirm){status.textContent='Passwords do not match.';return}const button=document.getElementById('submit');button.disabled=true;status.textContent='Updating password…';try{const response=await fetch('/api/auth/reset-password?token='+encodeURIComponent(token),{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({newPassword:password})});const data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.message||data.error||'Reset link may have expired.');form.remove();status.textContent='Password updated. Return to JARVIS and sign in with your new password.'}catch(error){status.textContent=error.message||'Password update failed.';button.disabled=false}});</script></html>`;
+      return new Response(page, { status: 200, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store", "content-security-policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; frame-ancestors 'none'", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer" } });
     }
     if (url.pathname.startsWith("/api/auth/")) {
       const auth = createAuth(env);

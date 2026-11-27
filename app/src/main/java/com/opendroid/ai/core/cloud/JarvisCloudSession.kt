@@ -64,6 +64,22 @@ class JarvisCloudSession @Inject constructor(
         if (!verifySession(root)) throw IOException("Sign-in response received, but no valid JARVIS session was created.")
     }
 
+    suspend fun requestPasswordReset(baseUrl: String, email: String) = withContext(Dispatchers.IO) {
+        val root = normalizeBaseUrl(baseUrl)
+        require(email.isNotBlank()) { "Enter your JARVIS account email first." }
+        val redirect = root + "reset-password-page"
+        val body = gson.toJson(mapOf("email" to email.trim(), "redirectTo" to redirect))
+            .toRequestBody(jsonType)
+        val request = Request.Builder().url(root + "api/auth/request-password-reset").post(body).build()
+        client.newCall(request).execute().use { response ->
+            val raw = response.body.string()
+            if (!response.isSuccessful) {
+                val detail = runCatching { com.google.gson.JsonParser.parseString(raw).asJsonObject.get("message")?.asString }.getOrNull()
+                throw IOException(detail ?: "Password recovery request failed (HTTP ${response.code}).")
+            }
+        }
+    }
+
     suspend fun verifySession(baseUrl: String): Boolean = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(normalizeBaseUrl(baseUrl) + "api/auth/get-session")

@@ -300,6 +300,28 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun requestJarvisPasswordReset() {
+        val email = _jarvisEmail.value.trim()
+        if (!jarvisCloudConfigured) {
+            _jarvisAccountStatus.value = "Cloud endpoint not configured in this build"
+            return
+        }
+        if (email.isBlank()) {
+            _jarvisAccountStatus.value = "Enter your account email to receive a password reset link."
+            return
+        }
+        _jarvisAccountStatus.value = "Requesting password reset..."
+        viewModelScope.launch(Dispatchers.IO) {
+            runCatching {
+                jarvisCloudSession.requestPasswordReset(BuildConfig.JARVIS_CLOUD_BASE_URL, email)
+            }.onSuccess {
+                _jarvisAccountStatus.value = "If this account exists, a password reset link has been sent. Check your email."
+            }.onFailure {
+                _jarvisAccountStatus.value = it.message?.take(180) ?: "Password reset request failed."
+            }
+        }
+    }
+
     fun signOutFromJarvisCloud() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching {
