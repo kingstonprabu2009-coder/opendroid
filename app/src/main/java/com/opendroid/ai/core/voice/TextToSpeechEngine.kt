@@ -293,25 +293,7 @@ class TextToSpeechEngine(
         if (generation.get() != speechGeneration) return true
         val clip = File.createTempFile("edge_tts_", ".mp3", context.cacheDir)
         if (!edgeTts.synthesize(text, voice.id, clip, voice.pitch, voice.rate)) { clip.delete(); return false }
-        synchronized(playerLock) {
-            if (generation.get() != speechGeneration) { clip.delete(); return true }
-            releasePlayerLocked()
-            val player = MediaPlayer()
-            mediaPlayer = player
-            currentClip = clip
-            try {
-                player.setDataSource(clip.absolutePath)
-                player.prepare()
-                player.setOnCompletionListener { finishClip(player, utteranceId) }
-                player.setOnErrorListener { _, _, _ -> finishClip(player, utteranceId); true }
-                player.start()
-                mainHandler.post { onStartListener?.invoke(utteranceId) }
-            } catch (e: Exception) {
-                releasePlayerLocked()
-                throw e
-            }
-        }
-        return true
+        return prepareAndPlayClip(clip, utteranceId, speechGeneration)
     }
 
     private fun playElevenLabsTts(
@@ -363,35 +345,52 @@ class TextToSpeechEngine(
                     throw e
                 }
 
-                synchronized(playerLock) {
-                    if (generation.get() != speechGeneration) {
-                        clip.delete()
-                        return true
-                    }
-                    // Replacing a clip mid-play releases it, which fires no completion.
-                    releasePlayerLocked()
-                    val player = MediaPlayer()
-                    mediaPlayer = player
-                    currentClip = clip
-                    try {
-                        player.setDataSource(clip.absolutePath)
-                        player.prepare()
-                        player.setOnCompletionListener { finishClip(player, utteranceId) }
-                        player.setOnErrorListener { _, _, _ ->
-                            finishClip(player, utteranceId)
-                            true
-                        }
-                        player.start()
-                        mainHandler.post { onStartListener?.invoke(utteranceId) }
-                    } catch (e: Exception) {
-                        releasePlayerLocked()
-                        throw e
-                    }
-                }
-                return true
+                return prepareAndPlayClip(clip, utteranceId, speechGeneration)
             }
         } finally {
             if (inFlightCall === call) inFlightCall = null
+        }
+    }
+
+    /**
+     * Preparing media can block while Android opens/decodes the file. Never hold playerLock
+     * during prepare(): stop() is called from the main thread and must never wait on decoding.
+     */
+    private fun prepareAndPlayClip(clip: File, utteranceId: String, speechGeneration: Long): Boolean {
+        if (generation.get() != speechGeneration) {
+            clip.delete()
+            return true
+        }
+        val player = MediaPlayer()
+        try {
+            player.setDataSource(clip.absolutePath)
+            player.prepare() // caller is the TTS IO dispatcher; deliberately outside playerLock
+            player.setOnCompletionListener { finishClip(player, utteranceId) }
+            player.setOnErrorListener { _, _, _ -> finishClip(player, utteranceId); true }
+            synchronized(playerLock) {
+                if (generation.get() != speechGeneration) {
+                    player.release()
+                    clip.delete()
+                    return true
+                }
+                // Replacing a clip mid-play releases it, which fires no completion.
+                releasePlayerLocked()
+                mediaPlayer = player
+                currentClip = clip
+                player.start()
+            }
+            mainHandler.post { onStartListener?.invoke(utteranceId) }
+            return true
+        } catch (e: Exception) {
+            synchronized(playerLock) {
+                if (mediaPlayer === player) {
+                    releasePlayerLocked()
+                } else {
+                    runCatching { player.release() }
+                    clip.delete()
+                }
+            }
+            throw e
         }
     }
 
