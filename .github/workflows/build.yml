@@ -2,6 +2,9 @@ name: JARVIS Integrated APK Build
 
 # Manual only: run validation first, then produce one integrated installable APK.
 on:
+  push:
+    branches:
+      - jarvis/unified-brain-termux
   workflow_dispatch:
 
 permissions:
