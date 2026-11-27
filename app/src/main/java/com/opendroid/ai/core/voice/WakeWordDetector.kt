@@ -57,9 +57,10 @@ class WakeWordDetector(private val context: Context) {
     }
 
     private fun debugToast(text: String) {
-        try {
-            Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
+        // Wake-word recognition is owned by a Service; never assume its callback
+        // is running on the UI thread when displaying a diagnostic toast.
+        handler.post {
+            runCatching { Toast.makeText(context, text, Toast.LENGTH_SHORT).show() }
         }
     }
 
