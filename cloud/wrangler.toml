@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 JARVIS_ENV = "production"
+JARVIS_DAILY_REQUEST_LIMIT = "0"
 ALLOWED_ORIGIN = "https://jarvis-cloud-api.kingstonprabu2009.workers.dev"
 BETTER_AUTH_URL = "https://jarvis-cloud-api.kingstonprabu2009.workers.dev"
 
