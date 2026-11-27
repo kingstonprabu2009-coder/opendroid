@@ -66,6 +66,13 @@ jobs:
           printf '%s' "$RELEASE_KEYSTORE_BASE64" | base64 --decode > opendroid-release.keystore
           chmod 600 opendroid-release.keystore
           keytool -list -keystore opendroid-release.keystore -storepass "$RELEASE_STORE_PASSWORD" -alias "$RELEASE_KEY_ALIAS" >/dev/null
+          # Verify the private-key password before Gradle spends minutes compiling R8.
+          keytool -certreq -alias "$RELEASE_KEY_ALIAS" \
+            -keystore opendroid-release.keystore \
+            -storepass "$RELEASE_STORE_PASSWORD" \
+            -keypass "$RELEASE_KEY_PASSWORD" \
+            -file "$RUNNER_TEMP/release-key-password-check.csr" >/dev/null
+          rm -f "$RUNNER_TEMP/release-key-password-check.csr"
           {
             echo "ORG_GRADLE_PROJECT_RELEASE_STORE_PASSWORD=$RELEASE_STORE_PASSWORD"
             echo "ORG_GRADLE_PROJECT_RELEASE_KEY_ALIAS=$RELEASE_KEY_ALIAS"
