@@ -63,7 +63,12 @@ class AutoReplyViewModel internal constructor(
         if (debounce) {
             debounceJob = writeScope.launch {
                 delay(debounceMillis)
-                persistPendingConfig()
+                // The debounce job only schedules persistence. The actual DataStore write runs
+                // in an independent scope job, so cancelling/replacing a later debounce can
+                // never cancel a write that has already started.
+                writeScope.launch {
+                    persistPendingConfig()
+                }
             }
         } else {
             flushPendingConfig()
