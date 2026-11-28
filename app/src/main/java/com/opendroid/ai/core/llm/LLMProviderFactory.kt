@@ -5,6 +5,7 @@ import com.opendroid.ai.core.agent.DeviceStateProvider
 import com.opendroid.ai.core.agent.IntentClassifier
 import com.opendroid.ai.core.llm.error.LLMErrorMapper
 import com.opendroid.ai.core.llm.error.SecretRegistry
+import com.opendroid.ai.core.llm.providers.JarvisCloudProvider
 import com.opendroid.ai.data.models.LLMConfig
 import com.opendroid.ai.data.models.selectedModelFor
 import com.opendroid.ai.data.repository.SettingsRepository
