@@ -27,10 +27,8 @@ import com.opendroid.ai.data.models.Plan
 import com.opendroid.ai.data.repository.SettingsRepository
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
@@ -69,7 +67,6 @@ class OpenDroidService : Service() {
     private val groqSpeech = GroqSpeech()
     private var listenJob: Job? = null
     private var wakeResumeJob: Job? = null
-    private var greetingDone: Pair<String, CompletableDeferred<Unit>>? = null
     private var wakeLock: PowerManager.WakeLock? = null
 
     companion object {
@@ -181,7 +178,6 @@ class OpenDroidService : Service() {
             if (agentLoop.agentState.value is AgentState.Speaking) {
                 agentLoop.setAgentState(AgentState.Idle)
             }
-            greetingDone?.let { (id, done) -> if (id == utteranceId) done.complete(Unit) }
             if (approvalListenGate.onUtteranceDone(utteranceId)) {
                 pendingApprovalListen.take()?.let { planId -> startListeningForApproval(planId) }
             }
@@ -494,16 +490,10 @@ class OpenDroidService : Service() {
         stopCurrentSpeech()
         agentLoop.speakReplies = true
         VoiceSubtitles.clear()
+        // Do not queue a spoken greeting before opening the microphone: that adds
+        // avoidable latency and can cause the recognizer to hear Jarvis's own voice.
         VoiceSubtitles.reply.value = "Sollunga sir"
-        val id = UUID.randomUUID().toString()
-        val done = CompletableDeferred<Unit>()
-        greetingDone = id to done
-        textToSpeechEngine.speak("Sollunga sir", utteranceId = id)
-        // Open the mic only after the greeting has finished, so it is never cut off.
-        listenJob = serviceScope.launch {
-            withTimeoutOrNull(5000) { done.await() }
-            startListeningForQuery()
-        }
+        startListeningForQuery()
     }
 
     /** After a plain spoken reply (no agent task), keep the live conversation going. */

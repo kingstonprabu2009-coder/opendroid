@@ -38,7 +38,7 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
     /**
      * Writes an MP3 of [text] spoken by [voice] to [target].
      * Receives audio frames over WebSocket and buffers the short utterance to a clip.
-     * Call from Dispatchers.IO; returns false on failure or a bounded 10-second timeout.
+     * Call from Dispatchers.IO; returns false on failure or a bounded 1.5-second timeout.
      */
     fun synthesize(text: String, voice: String, target: File, pitch: String = "+0Hz", rate: String = "+0%"): Boolean {
         failureReason = null
@@ -116,9 +116,9 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
                 }
             })
             socket = ws
-            val completed = done.await(10_000, TimeUnit.MILLISECONDS)
+            val completed = done.await(1_500, TimeUnit.MILLISECONDS)
             if (!completed) {
-                failureReason = "Timed out after 10 seconds"
+                failureReason = "Timed out after 1.5 seconds"
                 ws.cancel()
             }
             else try { ws.close(1000, null) } catch (_: Exception) {}

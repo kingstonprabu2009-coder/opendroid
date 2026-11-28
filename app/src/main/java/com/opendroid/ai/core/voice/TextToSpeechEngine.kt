@@ -208,7 +208,9 @@ class TextToSpeechEngine(
                 return@launch
             }
 
-            staleClipCleanup.join()
+            // Edge clips use a distinct temporary-file prefix, so they do not need
+            // to wait for the ElevenLabs cache cleanup before starting synthesis.
+            if (provider == "elevenlabs") staleClipCleanup.join()
             val config = if (provider == "elevenlabs") settingsRepository.llmConfig.first() else null
             val apiKey = config?.elevenLabsApiKey.orEmpty()
             val voiceId = config?.elevenLabsVoiceId.orEmpty().ifEmpty { "pNInz6obpgDQGcFmaJgB" }

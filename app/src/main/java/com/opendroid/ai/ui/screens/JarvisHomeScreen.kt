@@ -4,8 +4,6 @@ import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.os.PowerManager
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
@@ -152,28 +150,11 @@ fun JarvisHomeScreen(
         OpenDroidService.resumeIfWanted(context)
     }
 
-    // Without this, Android may put the app to sleep and the wake word stops hearing
-    // "Jarvis" once the app is closed or the screen is off.
-    fun askBatteryExemption() {
-        try {
-            val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as PowerManager
-            if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
-                val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
-                    data = ("package:" + context.packageName).toUri()
-                }
-                context.startActivity(intent)
-            }
-        } catch (e: Exception) {
-            // Some phones do not offer this screen; wake word still works while the app is open.
-        }
-    }
-
     val microphonePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
         if (granted) {
             OpenDroidService.start(context)
-            askBatteryExemption()
         }
     }
 
@@ -185,7 +166,6 @@ fun JarvisHomeScreen(
 
         if (granted) {
             OpenDroidService.start(context)
-            askBatteryExemption()
         } else {
             microphonePermissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
