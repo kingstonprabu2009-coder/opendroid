@@ -21,6 +21,7 @@ import com.opendroid.ai.accessibility.OpenDroidAccessibilityService
 import com.opendroid.ai.actions.base.Action
 import com.opendroid.ai.actions.base.ActionResult
 import com.opendroid.ai.core.agent.AgentLoop
+import com.opendroid.ai.core.security.FinancialAccessPolicy
 import java.io.IOException
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -405,6 +406,12 @@ class SystemActions @Inject constructor(
         override val name: String = "OPEN_APP"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val appName = params["appName"] ?: return ActionResult(false, null, "appName parameter missing")
+            if (FinancialAccessPolicy.isBlockedAppTarget(appName)) {
+                return ActionResult.Failure(
+                    errorMsg = "Banking and payment apps are blocked in JARVIS.",
+                    fallback = "Open a non-financial app instead."
+                )
+            }
             val pm = context.packageManager
             val mainIntent = Intent(Intent.ACTION_MAIN, null).apply {
                 addCategory(Intent.CATEGORY_LAUNCHER)
@@ -432,6 +439,17 @@ class SystemActions @Inject constructor(
             }
 
             return if (matchedPackage != null) {
+                val matchedLabel = runCatching {
+                    pm.getApplicationLabel(pm.getApplicationInfo(matchedPackage, 0)).toString()
+                }.getOrDefault("")
+                if (FinancialAccessPolicy.isBlockedAppTarget(matchedPackage) ||
+                    FinancialAccessPolicy.isBlockedAppTarget(matchedLabel)
+                ) {
+                    return ActionResult.Failure(
+                        errorMsg = "Banking and payment apps are blocked in JARVIS.",
+                        fallback = "Open a non-financial app instead."
+                    )
+                }
                 val intent = pm.getLaunchIntentForPackage(matchedPackage)
                 if (intent != null) {
                     intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -1043,6 +1061,12 @@ class SystemActions @Inject constructor(
                     "https://$url"
                 } else url
 
+                if (FinancialAccessPolicy.isBlockedUrl(fullUrl)) {
+                    return ActionResult.Failure(
+                        errorMsg = "Banking and payment websites are blocked in JARVIS.",
+                        fallback = "Open a non-financial website instead."
+                    )
+                }
                 val intent = Intent(Intent.ACTION_VIEW, fullUrl.toUri()).apply {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }

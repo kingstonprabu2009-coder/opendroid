@@ -7,6 +7,7 @@ import android.os.Bundle
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import dagger.hilt.android.AndroidEntryPoint
+import com.opendroid.ai.core.security.FinancialAccessPolicy
 import javax.inject.Inject
 import android.os.Build
 import android.graphics.Bitmap
@@ -26,6 +27,24 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     private val imeSubmitLabels = listOf("search", "go", "send", "done", "submit", "ok", "enter")
 
+    /**
+     * Blocks all screen reading and interaction on financial apps/pages.
+     * The JARVIS app itself is exempt so its own safety explanation remains usable.
+     */
+    private fun isFinancialSurface(): Boolean {
+        val root = rootInActiveWindow ?: return true
+        val activePackage = root.packageName?.toString().orEmpty()
+        if (activePackage == packageName) {
+            root.recycle()
+            return false
+        }
+        val screenTextResult = runCatching { nodeTraversal.screenText(root) }
+        root.recycle()
+        if (screenTextResult.isFailure) return true
+        val screenText = screenTextResult.getOrDefault("")
+        return FinancialAccessPolicy.isBlockedAppTarget(activePackage) ||
+            FinancialAccessPolicy.isFinancialScreen(screenText)
+    }
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -34,6 +53,11 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event == null) return
+        val eventPackage = event.packageName?.toString().orEmpty()
+        val eventText = event.text?.joinToString(" ").orEmpty()
+        if (FinancialAccessPolicy.isBlockedAppTarget(eventPackage) ||
+            FinancialAccessPolicy.isFinancialScreen(eventText)
+        ) return
         if (com.opendroid.ai.core.teaching.TeachingMode.active && event.packageName?.toString() != packageName) {
             val app = event.packageName?.toString().orEmpty()
             val label = (event.text?.joinToString(" ") ?: "").ifBlank { event.contentDescription?.toString().orEmpty() }
@@ -66,11 +90,13 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     // --- Node Automation Methods ---
 
     fun findAndClick(text: String): Boolean {
+        if (isFinancialSurface()) return false
         val rootNode = rootInActiveWindow ?: return false
         return nodeTraversal.findAndClick(rootNode, text)
     }
 
     fun findAndClickById(viewId: String): Boolean {
+        if (isFinancialSurface()) return false
         val rootNode = rootInActiveWindow ?: return false
         val nodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
         for (node in nodes) {
@@ -98,11 +124,13 @@ class OpenDroidAccessibilityService : AccessibilityService() {
         findAndTypeOutcome(searchText, content).typed
 
     fun findAndTypeOutcome(searchText: String, content: String): TypeOutcome {
+        if (isFinancialSurface()) return TypeOutcome.NOT_FOUND
         val rootNode = rootInActiveWindow ?: return TypeOutcome.NOT_FOUND
         return nodeTraversal.findAndType(rootNode, searchText, content)
     }
 
     fun findAndTypeById(viewId: String, content: String): Boolean {
+        if (isFinancialSurface()) return false
         val rootNode = rootInActiveWindow ?: return false
         val nodes = rootNode.findAccessibilityNodeInfosByViewId(viewId)
         for (node in nodes) {
@@ -128,6 +156,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
      * a submit action ("search", "go", "send", "done", "submit", "ok", "enter").
      */
     fun performImeEnter(): Boolean {
+        if (isFinancialSurface()) return false
         val focusedNode = rootInActiveWindow?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
         val success = if (focusedNode != null) {
             try {
@@ -153,6 +182,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     }
 
     fun performScroll(forward: Boolean): Boolean {
+        if (isFinancialSurface()) return false
         val rootNode = rootInActiveWindow ?: return false
         val action = if (forward) AccessibilityNodeInfo.ACTION_SCROLL_FORWARD else AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD
         val success = performScrollOnNode(rootNode, action)
@@ -178,6 +208,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     /** Taps the first video in YouTube search results (nodes described "... - play video"). */
     fun clickFirstVideoResult(query: String = ""): Boolean {
+        if (isFinancialSurface()) return false
         val root = rootInActiveWindow ?: return false
         val queue = ArrayDeque<AccessibilityNodeInfo>()
         queue.add(root)
@@ -206,13 +237,14 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     /** Taps the first visible control whose label or text contains [label]. */
     fun tapByText(label: String): Boolean {
-        if (label.isBlank()) return false
+        if (isFinancialSurface() || label.isBlank()) return false
         val n = findVisibleNode { d, t -> d.contains(label, true) || t.contains(label, true) } ?: return false
         return tapNode(n)
     }
 
     /** Types into the focused text field, or the first editable one on screen. */
     fun typeIntoFocused(text: String): Boolean {
+        if (isFinancialSurface()) return false
         val root = rootInActiveWindow ?: return false
         val field = root.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)?.takeIf { it.isEditable } ?: findEditable(root) ?: return false
         val args = Bundle().apply {
@@ -251,6 +283,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     /** "clicked", "already" (was subscribed before) or "notfound". */
     fun youtubeSubscribe(): String {
+        if (isFinancialSurface()) return "notfound"
         if (findVisibleNode { d, t -> d.startsWith("Subscribed", true) || t.equals("Subscribed", true) } != null) return "already"
         val n = findVisibleNode { d, t ->
             (d.startsWith("Subscribe", true) && !d.startsWith("Subscribed", true)) || t.equals("Subscribe", true)
@@ -260,6 +293,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     /** "clicked", "already" or "notfound". */
     fun youtubeLike(): String {
+        if (isFinancialSurface()) return "notfound"
         if (findVisibleNode { d, _ -> d.startsWith("Unlike", true) || d.contains("liked this", true) } != null) return "already"
         val n = findVisibleNode { d, _ -> d.startsWith("Like this video", true) || d.equals("Like", true) } ?: return "notfound"
         return if (tapNode(n)) "clicked" else "notfound"
@@ -267,7 +301,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     /** Opens the comment box on the watch page, types [text] and posts it. */
     suspend fun youtubeComment(text: String): Boolean {
-        if (text.isBlank()) return false
+        if (isFinancialSurface() || text.isBlank()) return false
         // 1. open the comments panel (scroll once or twice if it is below the fold)
         var opened = false
         for (attempt in 0 until 4) {
@@ -320,6 +354,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     // --- Gesture Automation Methods (Coordinate Taps) ---
 
     fun clickCoordinates(x: Float, y: Float): Boolean {
+        if (isFinancialSurface()) return false
         val width = resources.displayMetrics.widthPixels.toFloat()
         val height = resources.displayMetrics.heightPixels.toFloat()
         if (!x.isFinite() || !y.isFinite() || x < 0f || y < 0f || x > width || y > height) return false
@@ -336,6 +371,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
 
     /** Performs a controlled swipe/drag gesture. Used for timeline clips and trim handles in editors. */
     fun swipeCoordinates(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long = 350L): Boolean {
+        if (isFinancialSurface()) return false
         val width = resources.displayMetrics.widthPixels.toFloat()
         val height = resources.displayMetrics.heightPixels.toFloat()
         if (!startX.isFinite() || !startY.isFinite() || !endX.isFinite() || !endY.isFinite()) return false
@@ -352,6 +388,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     // --- Screen Text Extraction ---
 
     fun getScreenText(): String {
+        if (isFinancialSurface()) return ""
         val rootNode = rootInActiveWindow ?: return ""
         val text = nodeTraversal.screenText(rootNode)
         rootNode.recycle()
@@ -359,6 +396,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     }
 
     fun getScreenLayout(): String {
+        if (isFinancialSurface()) return ""
         val rootNode = rootInActiveWindow ?: return ""
         val layout = nodeTraversal.screenLayout(rootNode)
         rootNode.recycle()
@@ -366,6 +404,7 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     }
 
     suspend fun takeScreenshotAndEncode(): String? {
+        if (isFinancialSurface()) return null
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
             return null
         }

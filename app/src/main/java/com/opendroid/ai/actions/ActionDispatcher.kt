@@ -6,6 +6,7 @@ import com.opendroid.ai.actions.base.Action
 import com.opendroid.ai.actions.base.ActionResult
 import com.opendroid.ai.core.agent.ActionSchema
 import com.opendroid.ai.core.agent.DeviceStateProvider
+import com.opendroid.ai.core.security.FinancialAccessPolicy
 import com.opendroid.ai.data.db.dao.UnknownActionDao
 import com.opendroid.ai.data.db.entities.UnknownActionEntity
 import kotlinx.coroutines.CancellationException
@@ -149,6 +150,14 @@ class ActionDispatcher @Inject constructor(
         // ── STEP 0: Normalize the raw action name ──
         val normalized = autoMapper.normalizeActionName(actionName)
 
+        if (isFinancialRequest(normalized, params)) {
+            Log.w(TAG, "Blocked financial action or target: $normalized")
+            return ActionResult.Failure(
+                errorMsg = "Banking and payment actions are disabled in JARVIS.",
+                fallback = "Use JARVIS for non-financial tasks only."
+            )
+        }
+
         Log.d(TAG, "╔══ Action Execution Pipeline ══════════")
         Log.d(TAG, "║ Raw input:    $actionName")
         Log.d(TAG, "║ Normalized:   $normalized")
@@ -199,6 +208,14 @@ class ActionDispatcher @Inject constructor(
             val finalAction = mapping.mappedAction
             val finalParams = mapping.mappedParams
 
+            if (isFinancialRequest(finalAction, finalParams)) {
+                Log.w(TAG, "Blocked mapped financial action or target: $finalAction")
+                return ActionResult.Failure(
+                    errorMsg = "Banking and payment actions are disabled in JARVIS.",
+                    fallback = "Use JARVIS for non-financial tasks only."
+                )
+            }
+
             Log.d(TAG, "║ Resolved via: ${if (actionName != finalAction) "ALIAS/SEMANTIC" else "DIRECT"}")
             Log.d(TAG, "║ Final action: $finalAction")
             Log.d(TAG, "║ Mapped:       $actionName → $finalAction")
@@ -233,6 +250,12 @@ class ActionDispatcher @Inject constructor(
 
         // Handle unmapped passthrough (was already valid)
         if (mapping.mappedAction != null && !mapping.wasMapped) {
+            if (isFinancialRequest(mapping.mappedAction, mapping.mappedParams)) {
+                return ActionResult.Failure(
+                    errorMsg = "Banking and payment actions are disabled in JARVIS.",
+                    fallback = "Use JARVIS for non-financial tasks only."
+                )
+            }
             val handler = actionsMap[mapping.mappedAction]
             if (handler != null) {
                 Log.d(TAG, "║ Resolved via: PASSTHROUGH")
@@ -254,6 +277,13 @@ class ActionDispatcher @Inject constructor(
             availableActions = ActionSchema.getAllActionNames()
         )
     }
+
+    private fun isFinancialRequest(actionName: String, params: Map<String, String>): Boolean =
+        FinancialAccessPolicy.isBlockedAction(actionName) ||
+            (actionName.equals("OPEN_APP", ignoreCase = true) &&
+                FinancialAccessPolicy.isBlockedAppTarget(params["appName"])) ||
+            (actionName.equals("OPEN_URL", ignoreCase = true) &&
+                FinancialAccessPolicy.isBlockedUrl(params["url"]))
 
     // ════════════════════════════════════════════════════════════════
     //  Schema-based execution (validates + applies defaults)
