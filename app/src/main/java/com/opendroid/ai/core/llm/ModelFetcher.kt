@@ -75,11 +75,6 @@ class ModelFetcher @Inject constructor(
                     ModelFetchOutcome.Success(ModelListParsers.anthropic(page, provider))
                 }
 
-                "Google Gemini" -> {
-                    apiKey ?: return@withContext needsKey(provider)
-                    ModelFetchOutcome.Success(fetchGemini(apiKey, provider))
-                }
-
                 "OpenAI" -> {
                     apiKey ?: return@withContext needsKey(provider)
                     ModelFetchOutcome.Success(
@@ -235,31 +230,6 @@ class ModelFetcher @Inject constructor(
     }
 
     /**
-     * Gemini pages its model list, and the page a model lands on shifts as
-     * Google adds and retires models — so every page is walked rather than
-     * trusting the first one to hold what the user picked.
-     */
-    private fun fetchGemini(apiKey: String, provider: String): List<AIModel> {
-        val models = mutableListOf<AIModel>()
-        var pageToken: String? = null
-        var pagesFetched = 0
-        do {
-            val url = "https://generativelanguage.googleapis.com/v1beta/models".toHttpUrlOrNull()
-                ?.newBuilder()
-                ?.addQueryParameter("key", apiKey)
-                ?.addQueryParameter("pageSize", "200")
-                ?.apply { pageToken?.let { addQueryParameter("pageToken", it) } }
-                ?.build()
-                ?: throw IOException("Could not build the Gemini models request.")
-            val page = getJson(url = url.toString(), headers = emptyMap())
-            models += ModelListParsers.gemini(page, provider)
-            pageToken = page.optString("nextPageToken").takeIf { it.isNotBlank() }
-            pagesFetched++
-        } while (pageToken != null && pagesFetched < MAX_PAGES)
-        return models.sortedBy { it.displayName }
-    }
-
-    /**
      * Neither the URL (it can carry the API key as a query parameter) nor the
      * response body may appear in a thrown message: these are logged and shown
      * to the user.
@@ -359,35 +329,6 @@ internal object ModelListParsers {
             )
         }
         return list.sortedBy { it.displayName }
-    }
-
-    /**
-     * Gemini reports per-model capabilities, so chat models are identified by
-     * `generateContent` support rather than by a name pattern — the check that
-     * would have kept a retired `gemini-1.5-flash` out of the picker.
-     */
-    fun gemini(json: JSONObject, provider: String): List<AIModel> {
-        val models = json.optJSONArray("models") ?: return emptyList()
-        val list = mutableListOf<AIModel>()
-        for (i in 0 until models.length()) {
-            val obj = models.optJSONObject(i) ?: continue
-            val methods = obj.optJSONArray("supportedGenerationMethods")
-            val supportsChat = (0 until (methods?.length() ?: 0))
-                .any { methods?.optString(it) == "generateContent" }
-            if (!supportsChat) continue
-            val id = obj.optString("name").removePrefix("models/").takeIf { it.isNotBlank() } ?: continue
-            if (!isChatCapableId(id)) continue
-            list.add(
-                AIModel(
-                    id = id,
-                    displayName = obj.optString("displayName").takeIf { it.isNotBlank() }
-                        ?: formatModelName(id),
-                    provider = provider,
-                    contextWindow = obj.optInt("inputTokenLimit").takeIf { it > 0 }
-                )
-            )
-        }
-        return list
     }
 
     fun openRouter(json: JSONObject, provider: String): List<AIModel> {

@@ -25,7 +25,7 @@ class OpenRouterProvider @Inject constructor(
 ) : LLMProvider {
 
     override val name: String = "OpenRouter"
-    override val availableModels: List<String> = listOf("google/gemini-2.0-flash-exp:free", "meta-llama/llama-3-8b-instruct:free", "gryphe/mythomax-l2-13b:free")
+    override val availableModels: List<String> = listOf("meta-llama/llama-3-8b-instruct:free", "gryphe/mythomax-l2-13b:free")
 
     private val gson = Gson()
     private val mediaType = "application/json; charset=utf-8".toMediaType()
@@ -40,7 +40,7 @@ class OpenRouterProvider @Inject constructor(
 
         val messagesList = request.messages.toOpenAIMessages(request.systemPrompt)
 
-        val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "google/gemini-2.0-flash-exp:free"
+        val selectedModel = request.model?.takeIf { it.isNotBlank() } ?: "meta-llama/llama-3-8b-instruct:free"
 
         val requestBodyMap = mutableMapOf<String, Any>(
             "model" to selectedModel,

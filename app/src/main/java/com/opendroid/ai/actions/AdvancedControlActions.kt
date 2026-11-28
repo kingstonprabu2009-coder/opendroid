@@ -77,6 +77,7 @@ class AdvancedControlActions @Inject constructor() {
         ScrollAction(),
         GetScreenTextAction(),
         ClickCoordinatesAction(),
+        SwipeCoordinatesAction(),
         PressEnterAction(),
         WaitAction()
     )
@@ -439,7 +440,11 @@ class AdvancedControlActions @Inject constructor() {
         override val name: String = "GET_SCREEN_TEXT"
         override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
             val text = GenericAppAutomator.scrapeScreen()
-            return ActionResult(true, text.ifEmpty { "No text visible on screen" }, null)
+            return if (text.isBlank()) {
+                ActionResult(false, null, "No readable screen text is available. Inspect the screen visually before attempting UI automation.")
+            } else {
+                ActionResult(true, text, null)
+            }
         }
     }
 
@@ -450,6 +455,29 @@ class AdvancedControlActions @Inject constructor() {
             val y = params["y"]?.toFloatOrNull() ?: return ActionResult(false, null, "y coordinate is missing or invalid")
             val success = GenericAppAutomator.clickCoordinates(x, y)
             return ActionResult(success, if (success) "Tapped there!" else "Couldn't tap at that spot.", null)
+        }
+    }
+
+    private class SwipeCoordinatesAction : Action {
+        override val name: String = "SWIPE_COORDINATES"
+        override suspend fun execute(params: Map<String, String>, context: Context): ActionResult {
+            val startX = params["startX"]?.toFloatOrNull()
+                ?: return ActionResult(false, null, "startX coordinate is missing or invalid")
+            val startY = params["startY"]?.toFloatOrNull()
+                ?: return ActionResult(false, null, "startY coordinate is missing or invalid")
+            val endX = params["endX"]?.toFloatOrNull()
+                ?: return ActionResult(false, null, "endX coordinate is missing or invalid")
+            val endY = params["endY"]?.toFloatOrNull()
+                ?: return ActionResult(false, null, "endY coordinate is missing or invalid")
+            val durationMs = params["durationMs"]?.toLongOrNull() ?: 350L
+            if (!startX.isFinite() || !startY.isFinite() || !endX.isFinite() || !endY.isFinite()) {
+                return ActionResult(false, null, "Swipe coordinates must be finite numbers.")
+            }
+            if (durationMs !in 80L..1500L) {
+                return ActionResult(false, null, "Swipe duration must be between 80 and 1500 milliseconds.")
+            }
+            val success = GenericAppAutomator.swipeCoordinates(startX, startY, endX, endY, durationMs)
+            return ActionResult(success, if (success) "Swipe gesture dispatched." else "Swipe was not dispatched; check accessibility and screen coordinates.", null)
         }
     }
 

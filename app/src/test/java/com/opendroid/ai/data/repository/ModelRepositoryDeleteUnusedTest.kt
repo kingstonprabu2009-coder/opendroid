@@ -140,7 +140,7 @@ class ModelRepositoryDeleteUnusedTest {
 
     private suspend fun selectOnDeviceModelWithGeminiActive(modelId: String) {
         settings.updateConfig {
-            LLMConfig(activeProvider = "Google Gemini")
+            LLMConfig(activeProvider = "Mistral AI")
                 .withSelectedModel(ProviderCatalog.ON_DEVICE, modelId)
         }
     }

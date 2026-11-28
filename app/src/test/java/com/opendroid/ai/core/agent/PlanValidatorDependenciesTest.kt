@@ -35,6 +35,18 @@ class PlanValidatorDependenciesTest {
     }
 
     @Test
+    fun `browser search launch actions are not treated as returned research data`() {
+        val cleaned = PlanValidator.removeBadDependencies(
+            listOf(
+                step("s1", "WEB_SEARCH"),
+                step("s2", "GET_NEWS"),
+                step("s3", "SEND_SMS", listOf("s1", "s2"))
+            )
+        )
+        assertEquals(emptyList<String>(), cleaned.last().dependsOn)
+    }
+
+    @Test
     fun `ten steps are within the safe plan limit`() {
         PlanValidator.requirePlanStepLimit(10)
     }

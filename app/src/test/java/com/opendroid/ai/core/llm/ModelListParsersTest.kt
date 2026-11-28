@@ -20,38 +20,6 @@ import org.robolectric.RobolectricTestRunner
 class ModelListParsersTest {
 
     @Test
-    fun `gemini lists chat models by capability, not by name`() {
-        val json = JSONObject(
-            """
-            {"models":[
-              {"name":"models/gemini-nonexistent-9","displayName":"Gemini Nonexistent 9",
-               "inputTokenLimit":1048576,"supportedGenerationMethods":["generateContent","countTokens"]},
-              {"name":"models/text-embedding-004","displayName":"Embedding 004",
-               "supportedGenerationMethods":["embedContent"]}
-            ]}
-            """.trimIndent()
-        )
-
-        val models = ModelListParsers.gemini(json, "Google Gemini")
-
-        // A model this build has never heard of is listed the moment Google serves it.
-        assertEquals(listOf("gemini-nonexistent-9"), models.map { it.id })
-        assertEquals("Gemini Nonexistent 9", models.single().displayName)
-        assertEquals(1048576, models.single().contextWindow)
-    }
-
-    @Test
-    fun `gemini drops a model that cannot generate content`() {
-        val json = JSONObject(
-            """
-            {"models":[{"name":"models/gemini-1-5-flash","supportedGenerationMethods":["countTokens"]}]}
-            """.trimIndent()
-        )
-
-        assertTrue(ModelListParsers.gemini(json, "Google Gemini").isEmpty())
-    }
-
-    @Test
     fun `openai style keeps unknown chat families and drops non-chat endpoints`() {
         val json = JSONObject(
             """
@@ -146,7 +114,6 @@ class ModelListParsersTest {
         val json = JSONObject("""{"unexpected":true}""")
 
         assertTrue(ModelListParsers.openAiStyle(json, "OpenAI").isEmpty())
-        assertTrue(ModelListParsers.gemini(json, "Google Gemini").isEmpty())
         assertTrue(ModelListParsers.anthropic(json, "Anthropic Claude").isEmpty())
         assertTrue(ModelListParsers.cohere(json, "Cohere").isEmpty())
         assertTrue(ModelListParsers.openRouter(json, "OpenRouter").isEmpty())

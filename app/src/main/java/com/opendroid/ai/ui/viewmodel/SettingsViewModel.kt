@@ -60,6 +60,17 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 
 data class JarvisPlatformAdmin(val name: String, val email: String)
+data class JarvisPlatformAuditEvent(val eventType: String, val resourceType: String, val createdAt: String, val actorEmail: String)
+data class JarvisPlatformUser(val name: String, val email: String, val emailVerified: Boolean, val createdAt: Long)
+data class JarvisDailyUsage(val used: Int, val dailyLimit: Int, val remaining: Int, val usageDate: String)
+data class JarvisPlatformOverview(
+    val totalUsers: Int = 0,
+    val activeSessions: Int = 0,
+    val requestsToday: Int = 0,
+    val conversations: Int = 0,
+    val recentEvents: List<JarvisPlatformAuditEvent> = emptyList(),
+    val recentAccounts: List<JarvisPlatformUser> = emptyList()
+)
 data class JarvisTeam(val id: String, val name: String)
 data class JarvisTeamMember(val name: String, val email: String)
 
@@ -93,6 +104,10 @@ class SettingsViewModel @Inject constructor(
     val platformRole: StateFlow<String> = _platformRole.asStateFlow()
     private val _platformAdmins = MutableStateFlow<List<JarvisPlatformAdmin>>(emptyList())
     val platformAdmins: StateFlow<List<JarvisPlatformAdmin>> = _platformAdmins.asStateFlow()
+    private val _platformOverview = MutableStateFlow<JarvisPlatformOverview?>(null)
+    val platformOverview: StateFlow<JarvisPlatformOverview?> = _platformOverview.asStateFlow()
+    private val _dailyUsage = MutableStateFlow<JarvisDailyUsage?>(null)
+    val dailyUsage: StateFlow<JarvisDailyUsage?> = _dailyUsage.asStateFlow()
     private val _adminEmail = MutableStateFlow("")
     val adminEmail: StateFlow<String> = _adminEmail.asStateFlow()
     private val _adminManagementStatus = MutableStateFlow("")
@@ -269,9 +284,7 @@ class SettingsViewModel @Inject constructor(
                 jarvisCloudSession.signUp(BuildConfig.JARVIS_CLOUD_BASE_URL, email, password)
             }.onSuccess {
                 _jarvisPassword.value = ""
-                _jarvisAccountStatus.value = "Signed in"
-                refreshPlatformAccess()
-                refreshTeams()
+                _jarvisAccountStatus.value = "Account created. Check your email to verify it, then sign in."
             }.onFailure {
                 _jarvisAccountStatus.value = it.message?.take(180) ?: "Account creation failed"
             }
@@ -330,6 +343,8 @@ class SettingsViewModel @Inject constructor(
                 _jarvisPassword.value = ""
                 _jarvisAccountStatus.value = "Signed out"
                 _platformRole.value = "unknown"
+                _dailyUsage.value = null
+                _platformOverview.value = null
                 _platformAdmins.value = emptyList()
                 _adminManagementStatus.value = ""
                 _teams.value = emptyList()
@@ -442,12 +457,70 @@ class SettingsViewModel @Inject constructor(
                     val json = JsonParser.parseString(response.body.string()).asJsonObject
                     val role = json.get("role")?.asString ?: "user"
                     _platformRole.value = role
-                    if (role == "owner") loadPlatformAdmins(root) else _platformAdmins.value = emptyList()
+                    runCatching { loadDailyUsage(root) }
+                        .onFailure { _dailyUsage.value = null }
+                    if (role == "owner") {
+                        loadPlatformAdmins(root)
+                        runCatching { loadPlatformOverview(root) }
+                            .onFailure { _platformOverview.value = null }
+                    } else {
+                        _platformAdmins.value = emptyList()
+                        _platformOverview.value = null
+                    }
                 }
             }.onFailure {
                 _platformRole.value = "unknown"
+                _dailyUsage.value = null
                 _adminManagementStatus.value = it.message?.take(140) ?: "Unable to load platform access."
             }
+        }
+    }
+
+    private fun loadDailyUsage(root: String) {
+        val request = Request.Builder().url(root + "v1/usage").get().build()
+        jarvisCloudSession.authenticatedClient().newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Could not load daily cloud usage (HTTP ${response.code}).")
+            val json = JsonParser.parseString(response.body.string()).asJsonObject
+            _dailyUsage.value = JarvisDailyUsage(
+                used = json.get("used")?.asInt ?: 0,
+                dailyLimit = json.get("dailyLimit")?.asInt ?: 10,
+                remaining = json.get("remaining")?.asInt ?: 0,
+                usageDate = json.get("usageDate")?.asString.orEmpty()
+            )
+        }
+    }
+
+    private fun loadPlatformOverview(root: String) {
+        val request = Request.Builder().url(root + "v1/platform/overview").get().build()
+        jarvisCloudSession.authenticatedClient().newCall(request).execute().use { response ->
+            if (!response.isSuccessful) throw IllegalStateException("Could not load platform overview (HTTP ${response.code}).")
+            val json = JsonParser.parseString(response.body.string()).asJsonObject
+            val events = json.getAsJsonArray("recentEvents")?.map { item ->
+                val event = item.asJsonObject
+                JarvisPlatformAuditEvent(
+                    eventType = event.get("event_type")?.asString.orEmpty(),
+                    resourceType = event.get("resource_type")?.asString.orEmpty(),
+                    createdAt = event.get("created_at")?.asString.orEmpty(),
+                    actorEmail = event.get("actor_email")?.takeUnless { it.isJsonNull }?.asString.orEmpty()
+                )
+            }.orEmpty()
+            val accounts = json.getAsJsonArray("recentAccounts")?.map { item ->
+                val account = item.asJsonObject
+                JarvisPlatformUser(
+                    name = account.get("name")?.asString.orEmpty(),
+                    email = account.get("email")?.asString.orEmpty(),
+                    emailVerified = account.get("emailVerified")?.asInt == 1,
+                    createdAt = account.get("createdAt")?.asLong ?: 0L
+                )
+            }.orEmpty()
+            _platformOverview.value = JarvisPlatformOverview(
+                totalUsers = json.get("totalUsers")?.asInt ?: 0,
+                activeSessions = json.get("activeSessions")?.asInt ?: 0,
+                requestsToday = json.get("requestsToday")?.asInt ?: 0,
+                conversations = json.get("conversations")?.asInt ?: 0,
+                recentEvents = events,
+                recentAccounts = accounts
+            )
         }
     }
 
@@ -704,7 +777,13 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun updateActiveProvider(provider: String) {
-        val updated = _llmConfig.value.withActiveProvider(provider)
+        val safeProvider = if (com.opendroid.ai.core.llm.isFirstPartyBrainProvider(provider)) {
+            "JARVIS Cloud"
+        } else {
+            android.util.Log.w("SettingsViewModel", "Rejected legacy external provider selection.")
+            "JARVIS Cloud"
+        }
+        val updated = _llmConfig.value.withActiveProvider(safeProvider)
         _llmConfig.value = updated
         // Only jobs still in their debounce are cancelled; one already saving is left to finish.
         val pendingPicks = pendingModelSelections.toMap()
@@ -725,7 +804,7 @@ class SettingsViewModel @Inject constructor(
                     }
                 ) { current ->
                     pickUpdates.fold(current) { config, applyPick -> applyPick(config) }
-                        .withActiveProvider(provider)
+                        .withActiveProvider(safeProvider)
                 }
                 if (saved) refreshModels(force = false)
             } catch (e: Exception) {
@@ -740,15 +819,17 @@ class SettingsViewModel @Inject constructor(
      * provider before it runs.
      */
     fun updateActiveModel(model: String, provider: String = _llmConfig.value.activeProvider) {
-        val updated = _llmConfig.value.withSelectedModel(provider, model)
+        if (!com.opendroid.ai.core.llm.isFirstPartyBrainProvider(provider)) return
+        val updated = _llmConfig.value.withSelectedModel("JARVIS Cloud", model)
         _llmConfig.value = updated
-        modelSelectionJobs[provider]?.cancel()
-        pendingModelSelections[provider] = model
-        modelSelectionJobs[provider] = viewModelScope.launch {
+        val safeProvider = "JARVIS Cloud"
+        modelSelectionJobs[safeProvider]?.cancel()
+        pendingModelSelections[safeProvider] = model
+        modelSelectionJobs[safeProvider] = viewModelScope.launch {
             try {
                 delay(1000)
-                pendingModelSelections.remove(provider)
-                persistSelectedModel(provider, model)
+                pendingModelSelections.remove(safeProvider)
+                persistSelectedModel(safeProvider, model)
             } catch (e: Exception) {
                 if (e !is kotlinx.coroutines.CancellationException) {
                     android.util.Log.e("SettingsViewModel", "Failed to update active model: ${e.message}", e)

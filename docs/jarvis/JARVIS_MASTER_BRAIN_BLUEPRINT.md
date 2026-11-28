@@ -1,6 +1,6 @@
 # JARVIS Master Brain — Architecture Blueprint
 
-Status: Initial implementation foundation
+Status: Active implementation in progress — not complete until all 10 delivery gates pass CI and APK verification
 Date: 2026-11-28
 
 ## Product goal
@@ -21,7 +21,7 @@ Build JARVIS as a ChatGPT-style Android assistant with a cloud-first hybrid agen
 ## Architecture
 1. Android client: futuristic Compose UI, chat, voice controls, task queue, notifications, settings, owner panel, Accessibility adapter, encrypted local preferences. No large local model.
 2. Non-Google cloud gateway: authenticated HTTPS, per-user task ownership, rate limits, quotas, validation, audit events. Store provider secrets server-side. No paid fallback.
-3. Master Brain: streaming conversation manager; planner -> policy check -> tool selection -> execution -> verification -> summary. Specialist modules for research, coding, browser/Android automation, voice, memory, creator/video, and diagnostics. Deterministic tools execute actions; LLM is not the security boundary.
+3. Master Brain: streaming conversation manager; planner -> policy check -> tool selection -> execution -> verification -> summary. Cloud Brain Router classifies general, reasoning, coding, research-analysis, and automation-planning requests, then selects exactly one allowlisted open model for each request. No model fan-out or alternate-provider fallback is used. Research analysis must not claim live browsing unless a real retrieval tool is connected. Android AgentLoop/PlanManager validates plans before dispatch; ActionDispatcher is the deterministic execution boundary. Startup recovery marks interrupted RUNNING plans failed and never replays an action whose outcome may be uncertain.
 4. Knowledge: search public sources, official docs, and public repositories; store URL, title, publisher, retrieval time, license/terms, and excerpt metadata. Prefer RAG over copying datasets or training on unlicensed content. Pinterest and creative sites may inform design research; reuse each asset only when permitted.
 5. Self-improvement: learn approved preferences/workflows in versioned memory; evaluate skills and model versions before rollout. No unrestricted self-modifying production code. Code, dependency, security, or routing changes require tests, rollback, and owner approval.
 6. Video workflows: research permitted assets; create edit plans for cuts, captions, transitions, audio, aspect ratio, and export. Verify each editor workflow; do not promise instant rendering or desktop parity.
@@ -42,7 +42,8 @@ Build JARVIS as a ChatGPT-style Android assistant with a cloud-first hybrid agen
 - Memory is private per account; shared/global knowledge requires owner review and provenance.
 
 ## Voice and storage
-- Independent non-Google STT/TTS; evaluate Tamil and English quality before choosing defaults.
+- Current non-Google path: Groq Whisper for voice transcription when a Groq key is configured; the fallback recognizer is Android on-device only and network recognizer fallback is disabled. Voice output uses Edge Neural or an explicitly configured ElevenLabs key; Android/system TTS fallback has been removed.
+- Edge Neural is an unofficial online service, not an open-source model or guaranteed free SLA. ElevenLabs may incur cost and remains opt-in only. A fully audited, licensed open-source hosted STT/TTS replacement and Tamil/English quality evaluation remain required before claiming the voice phase complete.
 - Stream audio or keep voice models server-side; no large phone voice packs by default.
 - No voice cloning without documented permission.
 
@@ -61,8 +62,8 @@ Evaluate agent orchestration, Android/mobile agents, browser automation, multili
 - Previous local branch: jarvis/unified-brain-termux. This foundation is on a separate branch.
 - Existing package identity in the local branch: com.opendroid.ai. Preserve unless release-signature verification proves otherwise.
 - Existing code has PAY_UPI, CHECK_BALANCE, and SPLIT_BILL handlers and finance schemas. Remove/disable and test before any user-facing build.
-- Gradle currently includes Google ML Kit GenAI Prompt API and LiteRT-LM. Trace all call sites and replacements before removal.
-- GitHub Actions cloud build workflows already exist; review final artifact and signing flow.
+- Google ML Kit GenAI Prompt API and Gemini-specific providers/voice client have been removed from the active app source/dependencies. LiteRT-LM and legacy on-device model-management code still remain in the source tree and must be removed or proven unreachable before claiming the phone build is fully cloud-only and minimal-size.
+- GitHub Actions validation and signed APK workflows exist. The integrated APK workflow triggers on push to `jarvis/master-brain-foundation` or manual dispatch; it runs cloud typecheck/tests and Android unit tests before checking release signing secrets and building the signed APK. The current uncommitted working tree has not yet been pushed, so no CI run has verified these latest local changes.
 - The pre-existing working tree had user-created untracked screenshots/XML/assets. Preserve them; do not include them in commits.
 
 ## Delivery gates
@@ -77,4 +78,6 @@ Evaluate agent orchestration, Android/mobile agents, browser automation, multili
 9. Self-improvement and safe update pipeline.
 10. End-to-end tests, security checks, and cloud APK build.
 
-A feature is complete only after implementation, tests, and a successful cloud CI run.
+Current working-tree additions: single-model-per-request open-model routing, server-owned task guidance, a non-disableable 10-request daily account cap, startup recovery for interrupted Android plans, prompt-injection hardening for screen and stored-memory context, controlled accessibility drag gestures, reference-video analysis, and a Media3 multi-clip export path with optional background audio, source-audio mute, output aspect ratio, rotation, brightness/contrast/HSL, playback speed, fade-to-black transitions, static title, and timed captions; a share-sheet handoff can continue in CapCut when installed. Current local verification: cloud TypeScript typecheck passes; cloud Vitest passes 40/40; production `/health` returns HTTP 200; unauthenticated `/v1/chat` returns HTTP 401; `git diff --check` passes. Android Gradle compilation/unit tests have not been run on the phone; the exact current tree still requires GitHub Actions verification and real-device media/CapCut tests. Existing untracked screenshots/XML assets must remain out of any commit unless the owner explicitly requests them.
+
+A feature is complete only after implementation, tests, and a successful cloud CI run. No phase may be marked COMPLETED based on source edits alone.

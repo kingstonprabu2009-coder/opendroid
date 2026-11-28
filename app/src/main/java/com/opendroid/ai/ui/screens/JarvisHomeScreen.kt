@@ -98,7 +98,7 @@ import com.opendroid.ai.ui.viewmodel.ChatViewModel
 import com.opendroid.ai.ui.viewmodel.PlanViewModel
 import com.opendroid.ai.ui.viewmodel.SettingsViewModel
 
-private enum class JarvisMode { ORBIT, CHAT, MOVE, VOICE }
+private enum class JarvisMode { ORBIT, CHAT, MOVE, VOICE, REVERSE }
 
 private fun speakingState(state: AgentState): Boolean = state is AgentState.Speaking
 
@@ -289,7 +289,8 @@ fun JarvisHomeScreen(
                         JarvisMode.ORBIT to "Orbit",
                         JarvisMode.CHAT to "Chat",
                         JarvisMode.MOVE to "Move",
-                        JarvisMode.VOICE to "Voice"
+                        JarvisMode.VOICE to "Voice",
+                        JarvisMode.REVERSE to "Reverse"
                     ).forEach { (m, label) ->
                         val selected = mode == m
                         val tabBackground by animateColorAsState(
@@ -378,6 +379,10 @@ fun JarvisHomeScreen(
 
                 currentMode == JarvisMode.VOICE -> VoiceScreen(
                     viewModel = settingsViewModel,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                currentMode == JarvisMode.REVERSE -> ReverseEngineeringScreen(
                     modifier = Modifier.fillMaxSize()
                 )
 

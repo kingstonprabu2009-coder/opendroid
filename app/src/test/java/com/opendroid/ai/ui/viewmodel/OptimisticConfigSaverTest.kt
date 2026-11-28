@@ -112,12 +112,12 @@ class OptimisticConfigSaverTest {
         )
 
         val first = launch { saver.save(revert = { this }) { it.copy(activeProvider = "Groq") } }
-        val second = launch { saver.save(revert = { this }) { it.copy(activeProvider = "Google Gemini") } }
+        val second = launch { saver.save(revert = { this }) { it.copy(activeProvider = "Mistral AI") } }
         yield()
         firstWriteMayLand.complete(Unit)
         joinAll(first, second)
 
-        assertEquals(listOf("Groq", "Google Gemini"), written)
+        assertEquals(listOf("Groq", "Mistral AI"), written)
     }
 
     @Test

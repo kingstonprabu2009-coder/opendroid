@@ -119,8 +119,12 @@ class ActionDispatcher @Inject constructor(
         putAll(socialActions.getActions().associateBy { it.name })
     }
 
-    fun hasAction(actionName: String): Boolean =
-        actionsMap.containsKey(actionName) || actionsMap.containsKey(autoMapper.normalizeActionName(actionName))
+    fun hasAction(actionName: String): Boolean {
+        val normalized = autoMapper.normalizeActionName(actionName)
+        if (FinancialAccessPolicy.isBlockedAction(actionName) ||
+            FinancialAccessPolicy.isBlockedAction(normalized)) return false
+        return actionsMap.containsKey(actionName) || actionsMap.containsKey(normalized)
+    }
 
     /**
      * Resolves a raw plan/LLM action name to the canonical action name that
@@ -137,9 +141,11 @@ class ActionDispatcher @Inject constructor(
 
     fun isRegistered(actionName: String): Boolean = hasAction(actionName)
 
-    fun getAllRegisteredActions(): List<String> = actionsMap.keys.toList()
+    /** Expose only actions that are permitted by the permanent financial deny-list. */
+    fun getAllRegisteredActions(): List<String> =
+        actionsMap.keys.filterNot(FinancialAccessPolicy::isBlockedAction)
 
-    fun getActionCount(): Int = actionsMap.size
+    fun getActionCount(): Int = getAllRegisteredActions().size
 
     // ════════════════════════════════════════════════════════════════
     //  EXECUTE — full resolution + execution pipeline

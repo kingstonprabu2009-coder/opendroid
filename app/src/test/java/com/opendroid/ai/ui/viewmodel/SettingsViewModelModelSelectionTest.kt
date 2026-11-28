@@ -8,7 +8,6 @@ import androidx.test.core.app.ApplicationProvider
 import androidx.work.Configuration
 import androidx.work.WorkManager
 import com.opendroid.ai.core.llm.ModelDownloadTestApplication
-import com.opendroid.ai.core.llm.ModelFetcher
 import com.opendroid.ai.core.llm.OnDeviceEngineReleaser
 import com.opendroid.ai.core.security.CredentialStoreResult
 import com.opendroid.ai.core.security.ProviderCredentialId
@@ -19,7 +18,6 @@ import com.opendroid.ai.core.settings.AppSettingsStore
 import com.opendroid.ai.data.db.OpenDroidDatabase
 import com.opendroid.ai.data.models.LLMConfig
 import com.opendroid.ai.data.models.selectedModelFor
-import com.opendroid.ai.data.models.withSelectedModel
 import com.opendroid.ai.data.repository.ModelRepository
 import com.opendroid.ai.data.repository.SettingsRepository
 import java.nio.file.Files
@@ -87,68 +85,43 @@ class SettingsViewModelModelSelectionTest {
     }
 
     @Test
-    fun `a model picked just before a provider switch is saved for the provider it was picked for`() {
-        runBlocking {
-            settings.updateConfig {
-                LLMConfig(activeProvider = "OpenAI", activeModel = "gpt-4o").withSelectedModel("Groq", GROQ_MODEL)
-            }
-        }
+    fun `only JARVIS Cloud can be selected as the active provider`() {
+        runBlocking { settings.updateConfig { LLMConfig(activeProvider = "JARVIS Cloud", activeModel = "glm-flash") } }
         val viewModel = viewModel()
-        pumpUntil("initial config loaded") { viewModel.llmConfig.value.activeProvider == "OpenAI" }
+        pumpUntil("initial config loaded") { viewModel.llmConfig.value.activeProvider == "JARVIS Cloud" }
 
-        viewModel.updateActiveModel("gpt-4o-mini")
-        viewModel.updateActiveProvider("Groq")
+        viewModel.updateActiveProvider("OpenAI")
+        assertEquals("JARVIS Cloud", viewModel.llmConfig.value.activeProvider)
+        pump(Duration.ofSeconds(2))
+        assertEquals("JARVIS Cloud", stored().activeProvider)
+    }
 
-        pumpUntil("both edits persisted") {
-            val stored = stored()
-            stored.activeProvider == "Groq" && stored.selectedModelFor("OpenAI") == "gpt-4o-mini"
+    @Test
+    fun `only JARVIS Cloud model selections are persisted`() {
+        runBlocking { settings.updateConfig { LLMConfig(activeProvider = "JARVIS Cloud", activeModel = "glm-flash") } }
+        val viewModel = viewModel()
+        pumpUntil("initial config loaded") { viewModel.llmConfig.value.activeProvider == "JARVIS Cloud" }
+
+        viewModel.updateActiveModel("qwen3.5-32b")
+        viewModel.updateActiveProvider("JARVIS Cloud")
+        pumpUntil("cloud model pick persisted") {
+            stored().selectedModelFor("JARVIS Cloud") == "qwen3.5-32b"
         }
-        // Let any write still waiting on the debounce land before checking it did no damage.
+        assertEquals("JARVIS Cloud", stored().activeProvider)
+        assertEquals("qwen3.5-32b", stored().activeModel)
+    }
+
+    @Test
+    fun `legacy external model selection is ignored`() {
+        runBlocking { settings.updateConfig { LLMConfig(activeProvider = "JARVIS Cloud", activeModel = "glm-flash") } }
+        val viewModel = viewModel()
+        pumpUntil("initial config loaded") { viewModel.llmConfig.value.activeProvider == "JARVIS Cloud" }
+
+        viewModel.updateActiveModel("gpt-4o", provider = "OpenAI")
         pump(Duration.ofSeconds(2))
 
-        val stored = stored()
-        assertEquals("gpt-4o-mini", stored.selectedModelFor("OpenAI"))
-        assertEquals(GROQ_MODEL, stored.selectedModelFor("Groq"))
-        assertEquals("Groq", stored.activeProvider)
-        assertEquals(GROQ_MODEL, stored.activeModel)
-        assertEquals(GROQ_MODEL, viewModel.llmConfig.value.activeModel)
-    }
-
-    @Test
-    fun `switching provider saves the pending model pick without waiting for the debounce`() {
-        runBlocking { settings.updateConfig { LLMConfig(activeProvider = "OpenAI", activeModel = "gpt-4o") } }
-        val viewModel = viewModel()
-        pumpUntil("initial config loaded") { viewModel.llmConfig.value.activeProvider == "OpenAI" }
-
-        viewModel.updateActiveModel("gpt-4o-mini")
-        viewModel.updateActiveProvider("Groq")
-
-        // Well inside the 1 s debounce: only a flush on the switch can have written the pick.
-        pumpUntil("pick flushed on switch", clockStep = Duration.ofMillis(1)) {
-            stored().selectedModelFor("OpenAI") == "gpt-4o-mini"
-        }
-    }
-
-    @Test
-    fun `a later provider switch is not overwritten by an earlier one that flushed a model pick`() {
-        runBlocking { settings.updateConfig { LLMConfig(activeProvider = "OpenAI", activeModel = "gpt-4o") } }
-        val viewModel = viewModel()
-        pumpUntil("initial config loaded") { viewModel.llmConfig.value.activeProvider == "OpenAI" }
-
-        viewModel.updateActiveModel("gpt-4o-mini")
-        viewModel.updateActiveProvider("Groq")
-        viewModel.updateActiveProvider("Google Gemini")
-
-        pumpUntil("pick flushed") { stored().selectedModelFor("OpenAI") == "gpt-4o-mini" }
-        // Let every launched save land, in whatever order it resumes.
-        repeat(10) {
-            pump(Duration.ofMillis(200))
-            Thread.sleep(20)
-        }
-
-        assertEquals("Google Gemini", stored().activeProvider)
-        assertEquals("gpt-4o-mini", stored().selectedModelFor("OpenAI"))
-        assertEquals("Google Gemini", viewModel.llmConfig.value.activeProvider)
+        assertEquals("JARVIS Cloud", stored().activeProvider)
+        assertEquals("glm-flash", stored().activeModel)
     }
 
     private fun viewModel() = SettingsViewModel(
@@ -156,7 +129,7 @@ class SettingsViewModelModelSelectionTest {
         settingsRepository = settings,
         notificationDao = database.notificationDao(),
         llmProviderFactory = { error("no provider calls in this test") },
-        modelFetcher = { ModelFetcher(OkHttpClient(), settings) },
+        modelFetcher = { error("no model fetches in this test") },
         modelRepository = ModelRepository(context, database.modelDao(), settings, OnDeviceEngineReleaser { }),
         okHttpClient = OkHttpClient(),
         providerCredentialStore = EmptyProviderCredentialStore(),
@@ -220,7 +193,4 @@ class SettingsViewModelModelSelectionTest {
             CredentialStoreResult.Success(Unit)
     }
 
-    private companion object {
-        const val GROQ_MODEL = "llama-3.1-8b-instant"
-    }
 }

@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
-import worker, { consumeDailyChatQuota, hashInvitationToken, hasRunnableBrainProvider, isValidInviteEmail, resolvePlatformRole, shouldEnableThinking, validateChatContent } from "../src/index";
-import { FREE_KIMI_MODEL, selectBrainRoute } from "../src/brain-router";
+import worker, { consumeDailyChatQuota, DAILY_CHAT_REQUEST_LIMIT, hashInvitationToken, hasRunnableBrainProvider, isValidInviteEmail, resolvePlatformRole, shouldEnableThinking, validateChatContent } from "../src/index";
+import { brainTaskInstruction, selectBrainRoute } from "../src/brain-router";
 const env = { DB: {} as D1Database, JARVIS_ENV: "test", ALLOWED_ORIGIN: "http://localhost:8080" };
 describe("JARVIS daily chat quota", () => {
+  it("uses a fixed ten-request daily cap that cannot be changed by Worker environment variables", () => {
+    expect(DAILY_CHAT_REQUEST_LIMIT).toBe(10);
+  });
+
   it("consumes a slot when the database returns a row", async () => {
     const db = {
       prepare: () => ({
@@ -44,12 +48,11 @@ describe("JARVIS cloud image input validation", () => {
 });
 
 describe("JARVIS cloud provider availability", () => {
-  it("requires the correct free runtime for Cloudflare and Kimi models", () => {
+  it("requires the JARVIS Workers AI runtime and rejects multi-model routing", () => {
     expect(hasRunnableBrainProvider(["@cf/zai-org/glm-4.7-flash"], {})).toBe(false);
     expect(hasRunnableBrainProvider(["@cf/zai-org/glm-4.7-flash"], { AI: {} as Ai })).toBe(true);
-    expect(hasRunnableBrainProvider([FREE_KIMI_MODEL], { AI: {} as Ai })).toBe(false);
-    expect(hasRunnableBrainProvider([FREE_KIMI_MODEL], { OPENROUTER_API_KEY: "test-free-key" })).toBe(true);
-    expect(hasRunnableBrainProvider(["moonshotai/kimi-k3.1-pro"], { OPENROUTER_API_KEY: "test-free-key" })).toBe(false);
+    expect(hasRunnableBrainProvider(["@cf/zai-org/glm-4.7-flash", "@cf/qwen/qwen3.8-27b"], { AI: {} as Ai })).toBe(false);
+    expect(hasRunnableBrainProvider(["external:perplexity"], { AI: {} as Ai })).toBe(false);
   });
 });
 
@@ -62,49 +65,84 @@ describe("JARVIS unified brain routing", () => {
 
   it("routes complex planning to the reasoning model", () => {
     expect(selectBrainRoute("Plan the workflow", {}, true)).toMatchObject({
-      task: "reasoning", model: FREE_KIMI_MODEL
+      task: "reasoning", model: "@cf/qwen/qwen3.8-27b"
     });
   });
 
   it("routes image analysis only to vision-capable models", () => {
     expect(selectBrainRoute("Analyze this screenshot", {}, false, true)).toMatchObject({
-      model: FREE_KIMI_MODEL,
-      modelCandidates: [FREE_KIMI_MODEL, "@cf/google/gemma-4-26b-a4b-it"]
+      model: "@cf/meta/llama-4-scout-17b-16e-instruct",
+      modelCandidates: ["@cf/meta/llama-4-scout-17b-16e-instruct"]
     });
+  });
+
+  it("routes research analysis to the research specialist without claiming live browsing", () => {
+    const route = selectBrainRoute("Research this topic and find sources for a fact check", {}, false);
+    expect(route).toMatchObject({ task: "research", model: "@cf/qwen/qwen3.8-27b" });
+    expect(route.modelCandidates).toEqual(["@cf/qwen/qwen3.8-27b"]);
+    expect(brainTaskInstruction("research")).toContain("do not pretend to browse the live web");
+  });
+
+  it("routes app planner requests to the automation specialist from trusted app context", () => {
+    const route = selectBrainRoute("Open Settings", {}, true, false, "JARVIS Planning Engine: return plan JSON");
+    expect(route).toMatchObject({ task: "automation", model: "@cf/zai-org/glm-4.7-flash" });
+  });
+
+  it("routes phone workflows to the automation specialist and keeps safety policy explicit", () => {
+    const route = selectBrainRoute("Automate this workflow: open app, tap settings, set reminder", {}, false);
+    expect(route).toMatchObject({ task: "automation", model: "@cf/zai-org/glm-4.7-flash" });
+    expect(brainTaskInstruction("automation")).toContain("non-overridable banking/payment safety block");
   });
 
   it("routes source-code work to the coding model", () => {
     expect(selectBrainRoute("Debug this Kotlin build error", {}, true)).toMatchObject({
-      task: "coding", model: FREE_KIMI_MODEL
+      task: "coding", model: "@cf/qwen/qwen3.8-27b"
     });
   });
 
-  it("builds a free multi-model recovery chain without sending prompts to every model", () => {
-    const route = selectBrainRoute("Debug this Kotlin build error", {}, true);
-    expect(route.modelCandidates).toEqual([
-      FREE_KIMI_MODEL,
-      "@cf/google/gemma-4-26b-a4b-it",
-      "@cf/openai/gpt-oss-20b",
-      "@cf/qwen/qwen3.8-27b",
-      "@cf/meta/llama-4-scout-17b-16e-instruct",
-      "@cf/zai-org/glm-4.7-flash"
-    ]);
-    expect(new Set(route.modelCandidates).size).toBe(route.modelCandidates.length);
+  it("selects exactly one specialist model for each request", () => {
+    for (const message of ["Hi JARVIS", "Plan this carefully", "Debug Kotlin", "Research this topic", "Open app and tap settings"]) {
+      const route = selectBrainRoute(message, {}, true);
+      expect(route.modelCandidates).toHaveLength(1);
+      expect(route.modelCandidates[0]).toBe(route.model);
+    }
   });
 
-  it("honors per-task model overrides and a shared fallback", () => {
+  it("honors per-task model overrides without a second-model fallback", () => {
     expect(selectBrainRoute("Write Python code", {
       JARVIS_MODEL_CODING: "@cf/qwen/qwen3.8-27b",
-      JARVIS_MODEL_FALLBACK: "@cf/google/gemma-4-26b-a4b-it"
     }, false)).toMatchObject({
-      task: "coding", model: "@cf/qwen/qwen3.8-27b", fallbackModel: "@cf/google/gemma-4-26b-a4b-it"
+      task: "coding", model: "@cf/qwen/qwen3.8-27b", modelCandidates: ["@cf/qwen/qwen3.8-27b"]
     });
   });
 
-  it("preserves the legacy global model override when it is on the free allowlist", () => {
+  it("supports separate research and automation model overrides", () => {
+    expect(selectBrainRoute("Research this topic and find sources", {
+      JARVIS_MODEL_RESEARCH: "@cf/zai-org/glm-4.7-flash"
+    }, false)).toMatchObject({
+      task: "research", model: "@cf/zai-org/glm-4.7-flash",
+      modelCandidates: ["@cf/zai-org/glm-4.7-flash"]
+    });
+    expect(selectBrainRoute("Automate this workflow: open app and tap settings", {
+      JARVIS_MODEL_AUTOMATION: "@cf/qwen/qwen3.8-27b"
+    }, false)).toMatchObject({
+      task: "automation", model: "@cf/qwen/qwen3.8-27b",
+      modelCandidates: ["@cf/qwen/qwen3.8-27b"]
+    });
+  });
+
+  it("rejects unapproved model families from the route", () => {
+    const route = selectBrainRoute("Hello", {
+      JARVIS_MODEL: "@cf/google/gemma-4-26b-a4b-it",
+    }, false);
+    expect(route.modelCandidates).not.toContain("@cf/google/gemma-4-26b-a4b-it");
+    expect(route.modelCandidates.every(model => !model.includes("google") && !model.includes("gemma"))).toBe(true);
+  });
+
+  it("accepts only the configured open-model allowlist for the global override", () => {
     expect(selectBrainRoute("Debug Kotlin", {
-      JARVIS_MODEL: "@cf/openai/gpt-oss-20b"
-    }, true)).toMatchObject({ model: "@cf/openai/gpt-oss-20b" });
+      JARVIS_MODEL: "@cf/qwen/qwen3.8-27b"
+    }, true)).toMatchObject({ model: "@cf/qwen/qwen3.8-27b" });
   });
 
   it("rejects paid and external API model IDs even if obsolete paid flags are supplied", () => {
@@ -113,25 +151,27 @@ describe("JARVIS unified brain routing", () => {
       "@cf/moonshotai/kimi-k2.6",
       "@cf/deepseek-ai/deepseek-v4.1-flash-1017",
       "@cf/zai-org/glm-5.3",
-      "openai:gpt-6.2-astra"
+      "openai:gpt-6.2-astra",
+      "@cf/openai/gpt-oss-20b"
     ]) {
       expect(selectBrainRoute("Plan this carefully", {
         JARVIS_MODEL_REASONING: forbidden
-      }, true)).toMatchObject({ model: FREE_KIMI_MODEL });
+      }, true)).toMatchObject({ model: "@cf/qwen/qwen3.8-27b" });
       const route = selectBrainRoute("Hello", {
         JARVIS_MODEL: forbidden
       }, false);
-      expect(route.modelCandidates.every(model => model === FREE_KIMI_MODEL || (!model.toLowerCase().includes("kimi") && !model.startsWith("openai:")))).toBe(true);
+      expect(route.modelCandidates).toHaveLength(1);
+      expect(route.modelCandidates[0]).not.toContain("kimi");
+      expect(route.modelCandidates[0]).not.toMatch(/^openai:/);
     }
   });
 
-  it("rejects unknown provider model IDs and keeps fallback on the free allowlist", () => {
+  it("rejects unknown model IDs and keeps one approved route", () => {
     expect(selectBrainRoute("Hello", {
       JARVIS_MODEL: "@cf/unknown/private-model",
-      JARVIS_MODEL_FALLBACK: "@cf/unknown/fallback"
     }, false)).toMatchObject({
       model: "@cf/zai-org/glm-4.7-flash",
-      fallbackModel: "@cf/google/gemma-4-26b-a4b-it"
+      modelCandidates: ["@cf/zai-org/glm-4.7-flash"]
     });
   });
 });

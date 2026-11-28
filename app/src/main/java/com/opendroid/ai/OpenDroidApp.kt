@@ -6,6 +6,7 @@ import com.opendroid.ai.core.crash.CrashLogRecorder
 import com.opendroid.ai.core.crash.DeviceMetadata
 import com.opendroid.ai.core.crash.OpenDroidCrashHandler
 import com.opendroid.ai.core.llm.OnDeviceEngineReleaseMonitor
+import com.opendroid.ai.core.agent.PlanManager
 import com.opendroid.ai.core.llm.providers.LiteRTLMProvider
 import com.opendroid.ai.core.memory.LegacyPoisonedMemoryCleanup
 import com.opendroid.ai.core.memory.graph.PersonalGrowthEngine
@@ -37,6 +38,9 @@ class OpenDroidApp : Application() {
 
     @Inject
     lateinit var settingsRepository: SettingsRepository
+
+    @Inject
+    lateinit var planManager: PlanManager
 
     @Inject
     lateinit var liteRTProvider: dagger.Lazy<LiteRTLMProvider>
@@ -76,6 +80,13 @@ class OpenDroidApp : Application() {
         }
 
         engineReleaseMonitor.watch(settingsRepository.llmConfig.map { it.activeProvider })
+
+        // A process may die after an Android action ran but before its result was saved.
+        // Reconcile stale plans at startup and never blindly replay uncertain side effects.
+        appScope.launch {
+            runCatching { planManager.recoverInterruptedPlans() }
+                .onFailure { Log.w(TAG, "Interrupted task recovery failed", it) }
+        }
     }
 
     override fun onTrimMemory(level: Int) {

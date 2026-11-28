@@ -935,7 +935,12 @@ class SystemActions @Inject constructor(
             val question = params["question"] ?: "What do you see on this screen?"
             return try {
                 val analysis = visionEngine.get().analyzeCurrentScreen(question)
-                ActionResult(true, analysis, null)
+                val unavailable = analysis.startsWith("Could not capture or read the screen") ||
+                    analysis.startsWith("I captured the screenshot but couldn't analyze") ||
+                    analysis.startsWith("I read the screen text but couldn't analyze")
+                if (unavailable) ActionResult(false, null, analysis) else ActionResult(true, analysis, null)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e("ScreenshotAnalysis", "Analysis failed: ${e.localizedMessage}")
                 ActionResult(false, null, "Couldn't analyze the screen right now.")

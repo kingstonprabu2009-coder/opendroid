@@ -286,8 +286,6 @@ object LLMErrorMapper {
                 else LLMError.RateLimited
             status == 402 || quota -> LLMError.QuotaExhausted
             modelUnavailable || status == 404 -> LLMError.ModelUnavailable
-            provider == ProviderErrorDetail.Provider.GEMINI &&
-                status in setOf(500, 504) && contextTooLong -> LLMError.RequestInvalid
             status in setOf(400, 413, 422) -> LLMError.RequestInvalid
             status == 408 -> LLMError.Network
             status >= 500 -> LLMError.ServerError

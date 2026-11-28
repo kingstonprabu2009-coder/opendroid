@@ -28,6 +28,9 @@ class PlanRepository @Inject constructor(
         return mapEntityToPlan(entity)
     }
 
+    /** Fresh database snapshot used by startup recovery; never resumes side effects automatically. */
+    suspend fun getAllPlansSnapshot(): List<Plan> = planDao.getAllPlans().map(::mapEntityToPlan)
+
     /**
      * Writes a redacted copy: this table is unencrypted and is written before
      * the user approves anything. The caller's in-memory plan keeps its values.

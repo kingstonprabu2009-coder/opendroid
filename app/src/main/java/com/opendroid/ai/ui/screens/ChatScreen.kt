@@ -975,7 +975,7 @@ fun ChatBubble(
             ) {
                 if (isAgent && message.modelBadge != null) {
                     val displayName = when (message.modelBadge) {
-                        "Gemma 4 (On-device)" -> "ON-DEVICE (AI CORE)"
+                        "Gemma 4 (On-device)" -> "ON-DEVICE (LITERT)"
                         "On-Device AI" -> "ON-DEVICE AI"
                         "LiteRT-LM (On-device)" -> "ON-DEVICE (LITERT)"
                         else -> "JARVIS"

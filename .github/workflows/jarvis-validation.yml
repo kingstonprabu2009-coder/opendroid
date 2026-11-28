@@ -33,9 +33,29 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
       - name: Run unit tests only
+        shell: bash
         run: |
           chmod +x ./gradlew
-          ./gradlew testDebugUnitTest --stacktrace --no-daemon --max-workers=2
+          for attempt in 1 2 3; do
+            log="$RUNNER_TEMP/jarvis-gradle-test-$attempt.log"
+            if ./gradlew testDebugUnitTest --stacktrace --no-daemon --max-workers=2 >"$log" 2>&1; then
+              cat "$log"
+              exit 0
+            else
+              status=$?
+            fi
+            cat "$log"
+            # Maven Central occasionally rate-limits GitHub-hosted runners. Retry
+            # only that transient dependency-fetch failure, never real test failures.
+            if ! grep -q "429 Too Many Requests" "$log"; then
+              exit "$status"
+            fi
+            if [ "$attempt" -lt 3 ]; then
+              echo "Maven Central returned HTTP 429; retrying dependency resolution ($attempt/3)."
+              sleep 20
+            fi
+          done
+          exit 1
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4

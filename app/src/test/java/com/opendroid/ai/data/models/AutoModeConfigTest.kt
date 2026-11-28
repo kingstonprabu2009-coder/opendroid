@@ -61,7 +61,7 @@ class AutoModeConfigTest {
 
     @Test
     fun `old persisted JSON without new fields still decodes`() {
-        val config = json.decodeFromString<LLMConfig>("""{"activeProvider":"Google Gemini","autoConfirmPlans":true}""")
+        val config = json.decodeFromString<LLMConfig>("""{"activeProvider":"Mistral AI","autoConfirmPlans":true}""")
         assertEquals(AutoMode.YOLO, config.resolvedAutoMode())
         assertFalse(config.effectiveGrantedActions().isEmpty())
     }

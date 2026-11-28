@@ -1,5 +1,6 @@
 package com.opendroid.ai.core.agent
 
+import com.opendroid.ai.core.llm.prompts.PlanningPrompts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -92,33 +93,13 @@ class ActionSchemaTest {
     }
 
     @Test
-    fun `check balance app is optional and restricted to supported payment apps`() {
-        val app = ActionSchema.getAction("CHECK_BALANCE")!!.params.single()
-
-        assertEquals("app", app.name)
-        assertEquals(ParamType.ENUM, app.type)
-        assertFalse(app.required)
-        assertEquals(listOf("gpay", "phonepe", "paytm"), app.enumValues)
-        assertEquals("gpay", app.defaultValue)
-
-        val (defaultResult, defaultParams) = ActionSchema.validateParams("CHECK_BALANCE", emptyMap())
-        assertTrue(defaultResult is ActionSchema.ValidationResult.Valid)
-        assertEquals("gpay", defaultParams["app"])
-
-        listOf("gpay", "phonepe", "paytm").forEach { value ->
-            val (result, enriched) = ActionSchema.validateParams(
-                "CHECK_BALANCE",
-                mapOf("app" to value)
-            )
-            assertTrue(result is ActionSchema.ValidationResult.Valid)
-            assertEquals(value, enriched["app"])
+    fun `banking actions are rejected by schema lookup and parameter validation`() {
+        listOf("PAY_UPI", "CHECK_BALANCE", "SPLIT_BILL").forEach { action ->
+            assertEquals(null, ActionSchema.getAction(action))
+            val (result, _) = ActionSchema.validateParams(action, emptyMap())
+            assertTrue(result is ActionSchema.ValidationResult.InvalidAction)
+            assertFalse(ActionSchema.isValid(action))
         }
-
-        val (invalidResult, _) = ActionSchema.validateParams(
-            "CHECK_BALANCE",
-            mapOf("app" to "paypal")
-        )
-        assertTrue(invalidResult is ActionSchema.ValidationResult.InvalidParam)
     }
 
     @Test
@@ -204,6 +185,24 @@ class ActionSchemaTest {
         val simple = ActionSchema.getSimpleActions()
         assertTrue(simple.contains("TOGGLE_FLASHLIGHT")) // isSimple = true
         assertFalse(simple.contains("SEND_EMAIL"))       // isSimple = false
+    }
+
+    @Test
+    fun `screen swipe action requires explicit finite-coordinate fields in its schema`() {
+        val definition = ActionSchema.getAction("SWIPE_COORDINATES")
+        assertNotNull(definition)
+        assertEquals(
+            listOf("startX", "startY", "endX", "endY", "durationMs"),
+            definition!!.params.map { it.name }
+        )
+        val (missing, _) = ActionSchema.validateParams("SWIPE_COORDINATES", emptyMap())
+        assertTrue(missing is ActionSchema.ValidationResult.MissingParams)
+        val (valid, params) = ActionSchema.validateParams(
+            "SWIPE_COORDINATES",
+            mapOf("startX" to "100", "startY" to "500", "endX" to "700", "endY" to "500")
+        )
+        assertTrue(valid is ActionSchema.ValidationResult.Valid)
+        assertEquals("350", params["durationMs"])
     }
 
     @Test
@@ -301,4 +300,23 @@ class ActionSchemaTest {
 
         assertEquals(ActionSchema.ValidationResult.MissingParams(listOf("content")), result)
     }
+
+    @Test
+    fun `financial actions are excluded from every model-facing action catalogue`() {
+        val names = ActionSchema.getAllActionNames()
+        assertFalse(names.contains("PAY_UPI"))
+        assertFalse(names.contains("CHECK_BALANCE"))
+        assertFalse(names.contains("SPLIT_BILL"))
+        assertFalse(ActionSchema.buildLLMSchema().contains("PAY_UPI"))
+        assertFalse(ActionSchema.buildLLMSchema().contains("CHECK_BALANCE"))
+        assertFalse(ActionSchema.buildPlanningSchema().contains("SPLIT_BILL"))
+        assertFalse(ActionSchema.isValid("PAY_UPI"))
+        assertFalse(ActionSchema.isValid("CHECK_BALANCE"))
+        assertFalse(ActionSchema.isValid("SPLIT_BILL"))
+        val planningPrompt = PlanningPrompts.buildPlanningPrompt()
+        assertFalse(planningPrompt.contains("PAY_UPI"))
+        assertFalse(planningPrompt.contains("CHECK_BALANCE"))
+        assertFalse(planningPrompt.contains("SPLIT_BILL"))
+    }
+
 }

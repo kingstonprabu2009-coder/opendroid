@@ -125,7 +125,7 @@ fun TermsOfUseScreen(
             item {
                 PolicySection(
                     title = "3. API KEYS & THIRD-PARTY SERVICES",
-                    content = "Jarvis connects to third-party LLM providers (Google Gemini, OpenAI, Anthropic, etc.) using API keys you provide.\n\n" +
+                    content = "Jarvis connects to third-party LLM providers (JARVIS Cloud or another provider you explicitly configure) using API keys you provide.\n\n" +
                             "• You are responsible for obtaining and managing your own API keys.\n" +
                             "• API key usage is subject to the respective provider's terms of service.\n" +
                             "• Jarvis is not responsible for charges incurred through third-party API usage.\n" +

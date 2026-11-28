@@ -25,6 +25,13 @@ class PlanningPromptsTest {
         assertTrue(prompt.contains("runtime approval gates"))
         assertTrue(prompt.contains("Never claim an action has completed"))
         assertTrue(prompt.contains("Never place private personal memory in a team-scoped plan"))
+        assertTrue(prompt.contains("VIDEO-EDITING WORKFLOW"))
+        assertTrue(prompt.contains("SWIPE_COORDINATES"))
+        assertTrue(prompt.contains("OPEN_APP {appName: \"CapCut\"}"))
+        assertTrue(prompt.contains("Never silently substitute Google Flow"))
+        assertTrue(prompt.contains("Preserve the original source"))
+        assertTrue(prompt.contains("Never promise a one-second finished video"))
+        assertTrue(prompt.contains("Never invent button names, menu items, timeline coordinates"))
     }
 
     @Test

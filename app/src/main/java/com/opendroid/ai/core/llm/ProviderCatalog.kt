@@ -24,7 +24,6 @@ object ProviderCatalog {
      */
     val providers: List<ProviderSpec> = listOf(
         ProviderSpec("JARVIS Cloud", "jarvis-cloud"),
-        ProviderSpec("Google Gemini", "gemini-2.5-flash"),
         ProviderSpec("OpenAI", "gpt-4o"),
         ProviderSpec("Anthropic Claude", ClaudeModelCatalog.defaultModelId),
         ProviderSpec("Mistral AI", "mistral-large-latest"),
@@ -39,12 +38,11 @@ object ProviderCatalog {
         ProviderSpec("Opencode-Go", "beam-free"),
         ProviderSpec("Custom OpenAI Compatible", "custom-model"),
         ProviderSpec("Ollama", "llama3"),
-        ProviderSpec(ON_DEVICE, "gemma-4-on-device"),
+        ProviderSpec(ON_DEVICE, "qwen-2.5-0.5b-it-litert"),
         ProviderSpec("LiteRT-LM (On-device)", "qwen-2.5-0.5b-it-litert"),
         ProviderSpec("Llama.cpp (Local 7B)", "qwen2.5-7b-instruct-q4km-gguf"),
-        // Compatibility entry for the directly addressable AI Core backend.
-        // Its persisted key is normalized to the unified on-device provider.
-        ProviderSpec(LEGACY_ON_DEVICE, "gemma-4-on-device", ON_DEVICE)
+        // Legacy on-device provider name is normalized to the LiteRT-only path.
+        ProviderSpec(LEGACY_ON_DEVICE, "qwen-2.5-0.5b-it-litert", ON_DEVICE)
     )
 
     private val byExternalName = providers.associateBy { it.displayName }
@@ -66,7 +64,6 @@ object ProviderCatalog {
     }
 
     fun requiresApiKey(providerName: String): Boolean = when (canonicalName(providerName)) {
-        "Google Gemini",
         "OpenAI",
         "Anthropic Claude",
         "Mistral AI",

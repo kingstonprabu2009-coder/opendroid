@@ -3,6 +3,7 @@ package com.opendroid.ai.core.agent
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
+import com.opendroid.ai.core.security.FinancialAccessPolicy
 
 data class ActionDefinition(
     val name: String,
@@ -1225,6 +1226,19 @@ object ActionSchema {
             category = ActionCategory.ADVANCED
         ),
         ActionDefinition(
+            name = "SWIPE_COORDINATES",
+            description = "Performs a controlled swipe or drag gesture between screen coordinates. Use only after inspecting the current screen and identifying the exact visible target; never guess timeline positions.",
+            params = listOf(
+                ParamDefinition("startX", ParamType.STRING, true, "Start X coordinate from the inspected screen"),
+                ParamDefinition("startY", ParamType.STRING, true, "Start Y coordinate from the inspected screen"),
+                ParamDefinition("endX", ParamType.STRING, true, "End X coordinate from the inspected screen"),
+                ParamDefinition("endY", ParamType.STRING, true, "End Y coordinate from the inspected screen"),
+                ParamDefinition("durationMs", ParamType.STRING, false, "Gesture duration from 80 to 1500 ms", defaultValue = "350")
+            ),
+            examples = listOf("drag the selected clip after inspecting the timeline"),
+            category = ActionCategory.ADVANCED
+        ),
+        ActionDefinition(
             name = "PRESS_ENTER",
             description = """Performs the IME 'enter/search/go' action on the currently
                 focused text field to submit it. ALWAYS use this after TYPE_TEXT or
@@ -1393,17 +1407,21 @@ object ActionSchema {
 
     // ── Utility functions ───────────────────────────────
 
-    /** Get all action names — inject into LLM prompt */
+    /** Model-visible actions exclude the permanent financial deny-list. */
+    private val plannerActions: List<ActionDefinition>
+        get() = ALL_ACTIONS.filterNot { FinancialAccessPolicy.isBlockedAction(it.name) }
+
+    /** Get all model-visible action names — inject into LLM prompt. */
     fun getAllActionNames(): List<String> =
-        ALL_ACTIONS.map { it.name }.sorted()
+        plannerActions.map { it.name }.sorted()
 
     /** Get action by name */
     fun getAction(name: String): ActionDefinition? =
-        ALL_ACTIONS.find { it.name == name }
+        plannerActions.find { it.name == name }
 
     /** Every param name any action declares in [ActionDefinition.sensitiveParams]. */
     val sensitiveParamNames: Set<String> by lazy {
-        ALL_ACTIONS.flatMapTo(mutableSetOf()) { it.sensitiveParams }
+        plannerActions.flatMapTo(mutableSetOf()) { it.sensitiveParams }
     }
 
     fun riskForAction(actionName: String): ActionRisk =
@@ -1414,15 +1432,15 @@ object ActionSchema {
 
     /** Check if action exists in schema */
     fun isValid(name: String): Boolean =
-        ALL_ACTIONS.any { it.name == name }
+        plannerActions.any { it.name == name }
 
     /** Get actions by category */
     fun getByCategory(category: ActionCategory): List<ActionDefinition> =
-        ALL_ACTIONS.filter { it.category == category }
+        plannerActions.filter { it.category == category }
 
     /** Get simple actions (never need a plan) */
     fun getSimpleActions(): List<String> =
-        ALL_ACTIONS.filter { it.isSimple }.map { it.name }
+        plannerActions.filter { it.isSimple }.map { it.name }
 
     /** Check if action should never be auto-approved (moves money or irreversible) */
     fun isNeverAutoApprove(actionName: String): Boolean =
@@ -1439,7 +1457,7 @@ object ActionSchema {
         sb.appendLine()
 
         ActionCategory.values().forEach { category ->
-            val categoryActions = ALL_ACTIONS.filter { it.category == category }
+            val categoryActions = plannerActions.filter { it.category == category }
             if (categoryActions.isEmpty()) return@forEach
 
             sb.appendLine("── ${category.name} ──")
@@ -1469,7 +1487,7 @@ object ActionSchema {
             }
         }
 
-        sb.appendLine("TOTAL: ${ALL_ACTIONS.size} actions available.")
+        sb.appendLine("TOTAL: ${plannerActions.size} actions available.")
         sb.appendLine("ANY action NOT in this list = INVALID. Use CHAT for unsupported requests.")
         return sb.toString()
     }
@@ -1482,7 +1500,7 @@ object ActionSchema {
         var categoryIndex = 1
 
         ActionCategory.values().forEach { category ->
-            val categoryActions = ALL_ACTIONS.filter { it.category == category }
+            val categoryActions = plannerActions.filter { it.category == category }
             if (categoryActions.isEmpty()) return@forEach
 
             sb.appendLine("$categoryIndex. ${category.name}")

@@ -42,12 +42,19 @@ class JarvisCloudSession @Inject constructor(
         ).toRequestBody(jsonType)
         val request = Request.Builder().url(root + "api/auth/sign-up/email").post(body).build()
         client.newCall(request).execute().use { response ->
+            val responseBody = response.body.string()
             if (!response.isSuccessful) {
-                val detail = response.body.string().take(240)
+                val detail = responseBody.take(240)
                 throw IOException("JARVIS account creation failed (HTTP ${response.code}): ${detail.ifBlank { response.message }}")
             }
+            // Email verification is required: Better Auth intentionally returns a null
+            // session token until the user verifies the address. Do not treat that as failure.
+            val token = runCatching {
+                com.google.gson.JsonParser.parseString(responseBody).asJsonObject.get("token")
+            }.getOrNull()
+            if (token == null || token.isJsonNull) return@withContext
         }
-        if (!verifySession(root)) throw IOException("Account created, but no active JARVIS session was returned. Try signing in.")
+        if (!verifySession(root)) throw IOException("Account created, but no active JARVIS session was returned. Verify your email, then sign in.")
     }
 
     suspend fun signIn(baseUrl: String, email: String, password: String) = withContext(Dispatchers.IO) {
@@ -58,6 +65,12 @@ class JarvisCloudSession @Inject constructor(
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
                 val detail = response.body.string().take(240)
+                val errorCode = runCatching {
+                    com.google.gson.JsonParser.parseString(detail).asJsonObject.get("code")?.asString
+                }.getOrNull()
+                if (errorCode == "EMAIL_NOT_VERIFIED") {
+                    throw IOException("Email not verified. We sent a fresh verification link; check your inbox, then sign in again.")
+                }
                 throw IOException("JARVIS sign-in failed (HTTP ${response.code}): ${detail.ifBlank { response.message }}")
             }
         }

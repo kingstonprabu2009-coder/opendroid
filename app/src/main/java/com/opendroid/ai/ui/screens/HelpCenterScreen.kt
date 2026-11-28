@@ -103,7 +103,7 @@ fun HelpCenterScreen(
                             "2. Grant the requested permissions (microphone, accessibility, etc.)\n" +
                             "3. Go to Settings and enter your LLM provider API key\n" +
                             "4. Start talking or typing commands!\n\n" +
-                            "Tip: Google Gemini is the default provider. Get a free API key at ai.google.dev"
+                            "Tip: JARVIS Cloud is the default provider. Sign in to your JARVIS account to use the online brain."
                 )
             }
 
@@ -130,7 +130,7 @@ fun HelpCenterScreen(
                             "2. Enter your API key for the provider you want to use\n" +
                             "3. Select that provider from the \"Active Brain Provider\" dropdown\n\n" +
                             "Supported providers:\n" +
-                            "• Google Gemini (recommended for beginners)\n" +
+                            "• JARVIS Cloud (recommended)\n" +
                             "• OpenAI (GPT-4, GPT-3.5)\n" +
                             "• Anthropic Claude\n" +
                             "• Groq (fast inference)\n" +

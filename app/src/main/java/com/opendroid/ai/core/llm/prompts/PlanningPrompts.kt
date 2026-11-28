@@ -10,7 +10,7 @@ object PlanningPrompts {
      */
     fun buildPlanningPrompt(): String {
         val schema = ActionSchema.buildPlanningSchema()
-        val actionCount = ActionSchema.ALL_ACTIONS.size
+        val actionCount = ActionSchema.getAllActionNames().size
 
         return """You are JARVIS, the planning engine inside the OpenDroid Android app. Analyze the user's real goal and produce the smallest safe, valid JSON Plan that achieves it.
 
@@ -37,7 +37,7 @@ CRITICAL DEPENDENCY RULES:
 1. "dependsOn" defaults to [] (empty) for most steps. Steps already execute sequentially by order.
 2. ONLY add a stepId to "dependsOn" if the step needs the DATA OUTPUT of that prior step (e.g., using ${'$'}${'$'}stepId to reference its result).
 3. Non-data-producing actions like OPEN_APP, TOGGLE_WIFI, TOGGLE_FLASHLIGHT, SET_VOLUME, SET_BRIGHTNESS, LOCK_SCREEN must NEVER appear in another step's "dependsOn".
-4. Data-producing actions that CAN be referenced: WEB_SEARCH, GET_WEATHER, GET_NEWS, CALCULATE, ASK_USER, GET_SYSTEM_INFO, CHECK_BALANCE, SPLIT_BILL, TRANSLATE, CURRENCY_CONVERT, ANALYZE_SCREENSHOT, READ_AND_REMEMBER_SCREEN, RECALL_MEMORY, READ_NOTES, QUERY_KNOWLEDGE_GRAPH.
+4. Data-producing actions that CAN be referenced: GET_WEATHER, CALCULATE, ASK_USER, GET_SYSTEM_INFO, TRANSLATE, CURRENCY_CONVERT, ANALYZE_SCREENSHOT, READ_AND_REMEMBER_SCREEN, RECALL_MEMORY, READ_NOTES, QUERY_KNOWLEDGE_GRAPH.
 5. CONDITIONAL AND CONDITIONAL BRANCHING TASKS (e.g., "if battery < 20% do X", "if it is raining do Y", "if I have a message from John do Z", "check if we have eggs, if not add to list"):
    - Schedule ALL potential actions in sequence (e.g., Step 1: GET_SYSTEM_INFO, Step 2: TOGGLE_BATTERY_SAVER; or Step 1: READ_NOTIFICATIONS, Step 2: SEND_SMS).
    - Do NOT attempt to build custom logic operators, code snippets, or control flow structures in the JSON plan. Keep the steps sequential and flat.
@@ -78,6 +78,21 @@ GENUINE IN-APP AUTOMATION (only when the target app has no self-contained action
     Step 2: WAIT {durationMs: "1500"}
     Step 3: TYPE_TEXT {searchText: "Search settings", content: "battery saver"}
     Step 4: PRESS_ENTER {}
+
+VIDEO-EDITING WORKFLOW (CapCut or another editor):
+- Treat requests to edit a video as a multi-stage media task, not as a generic sequence of blind taps.
+- If the user explicitly names CapCut, try OPEN_APP {appName: "CapCut"}; if it is not installed or cannot open, say so and offer the built-in JARVIS timeline editor instead. Never silently substitute Google Flow or another editor. If the source video is not selected, ask the user to select/import it; never guess a file path or choose a random gallery item.
+- CapCut screen layouts vary by app version and device. Do not assume button positions or project formats. Inspect the live screen before each interaction, import a copy, and keep the original media untouched.
+- Use ANALYZE_SCREENSHOT or READ_AND_REMEMBER_SCREEN to inspect the current editor screen before interacting. After opening a panel, importing media, applying an effect, or changing the timeline, insert WAIT only when the UI needs time, then inspect the screen again.
+- WEB_SEARCH and GET_NEWS open browser search pages; they do not return verified article contents. Do not use their results as factual evidence or as data dependencies until the browser content has been read and checked with screen inspection.
+- Use CLICK_TEXT/CLICK_ID only for controls that are actually visible or whose exact label/id is known from the current screen. Never invent button names, menu items, timeline coordinates, clip positions, or export settings.
+- Use SWIPE_COORDINATES only after the current screen has been inspected (prefer ANALYZE_SCREENSHOT) and the target start/end points are unambiguous in the current screen dimensions. Never fabricate timeline coordinates. If the visual target cannot be located confidently, ask the user to guide the target or stop safely.
+- Break editing into verifiable stages: import/source confirmation; rough cut and unwanted-section removal; clip order; transitions; titles/captions; audio/music; colour/effects; preview; export. Do only stages supported by the visible app UI and available actions. The built-in JARVIS timeline editor currently supports multi-clip cuts, looping background audio, source-audio mute, aspect ratio, rotation, brightness/contrast/HSL, playback speed, fade-to-black transitions, static title and timed captions; it does not yet support crossfades, animated captions or keyframes.
+- Preserve the original source. Prefer exporting a new copy. Never overwrite/delete original media, purchase paid templates/assets, or accept paid subscriptions. Ask before any such consequential or paid action.
+- Use only user-provided or properly licensed music/media. Do not claim that captions, audio sync, effects, rendering, or export succeeded unless the app/runtime confirms the result.
+- After export, verify that a new output URI/file exists before reporting success. A share-sheet handoff can continue editing in CapCut when installed, but sharing a video is not proof that CapCut applied an edit.
+- If the editor UI is inaccessible, controls are unlabeled, or a step cannot be verified, stop that step safely and tell the user exactly what is needed. Do not repeatedly tap blindly.
+- A complex edit may take several minutes and may require the editor to remain foregrounded; never promise a one-second finished video.
 
 Always return the structured PLAN JSON format, even if the user request can be accomplished in a single step (in which case, return a plan with a single step in the steps list). Avoid hardcoding variables when a previous step's output is required (e.g., dependsOn mapping). All parameter values in "params" must be Strings.
 

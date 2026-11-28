@@ -54,17 +54,13 @@ class SpeechRecognitionEngine(private val context: Context) {
     }
 
     private fun initializeRecognizer() {
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
-            // Prefer offline recognition when Android has an installed on-device engine.
-            // This avoids depending on a second network service just to capture a command.
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
-                SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
-            ) {
-                speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
-                usingOnDeviceRecognition = true
-            } else {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-            }
+        // Do not fall back to the default network recognizer: device speech input must
+        // never silently route audio to a Google/third-party cloud speech service.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+        ) {
+            speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
+            usingOnDeviceRecognition = true
             recognizerIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, usingOnDeviceRecognition)
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -88,7 +84,7 @@ class SpeechRecognitionEngine(private val context: Context) {
         onAlternatives: (List<String>) -> Unit = {}
     ) {
         if (speechRecognizer == null) {
-            onError("Speech recognition not available on this device")
+            onError("On-device speech recognition is unavailable. Install a supported offline speech language pack; network speech services are disabled.")
             return
         }
 
@@ -105,38 +101,13 @@ class SpeechRecognitionEngine(private val context: Context) {
 
             override fun onError(error: Int) {
                 if (sessionId != activeSessionId) return
-                // Some devices expose an offline recognizer but do not have Tamil data.
-                // Retry this session once with Android's standard recognizer instead of
-                // leaving the user stuck on an unavailable offline language pack.
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && usingOnDeviceRecognition &&
-                    (error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED ||
-                        error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE)
-                ) {
-                    runCatching {
-                        speechRecognizer?.destroy()
-                        usingOnDeviceRecognition = false
-                        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
-                        recognizerIntent?.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, false)
-                        speechRecognizer?.setRecognitionListener(this)
-                        speechRecognizer?.startListening(recognizerIntent)
-                    }.onFailure { fallbackError ->
-                        unmuteBeep()
-                        onError(fallbackError.message?.take(120)
-                            ?: "Tamil offline speech is unavailable. Check internet and retry.")
-                    }
-                    return
-                }
                 unmuteBeep()
                 val message = when (error) {
                     SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
                     SpeechRecognizer.ERROR_CLIENT -> "Client side error"
                     SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
-                    SpeechRecognizer.ERROR_NETWORK -> if (usingOnDeviceRecognition) {
-                        "On-device speech service failed. Check that Tamil offline speech data is installed."
-                    } else {
-                        "Android speech recognition network unavailable. Check internet or install offline Tamil speech data."
-                    }
-                    SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Speech recognition timed out. Check internet or try offline speech data."
+                    SpeechRecognizer.ERROR_NETWORK, SpeechRecognizer.ERROR_NETWORK_TIMEOUT ->
+                        "On-device speech service failed. Check that the required offline language data is installed."
                     SpeechRecognizer.ERROR_NO_MATCH -> "No speech match found"
                     SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Speech recognition engine busy"
                     SpeechRecognizer.ERROR_SERVER -> "Server error"

@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
 import android.os.Bundle
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.speech.RecognitionListener
@@ -110,19 +111,29 @@ class WakeWordDetector(private val context: Context) {
 
         cleanupRecognizer()
 
-        if (SpeechRecognizer.isRecognitionAvailable(context)) {
+        // Wake-word listening is on-device only. Never fall back to the default
+        // network recognizer, which may upload ambient audio to a cloud service.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
+        ) {
             try {
-                speechRecognizer = SpeechRecognizer.createSpeechRecognizer(context)
+                speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
             } catch (e: Exception) {
-                scheduleRestart(3000L)
+                if (lastToastError != -99) {
+                    lastToastError = -99
+                    debugToast("Jarvis wake error: on-device speech service unavailable")
+                }
+                isListening = false
+                unmuteBeep()
                 return
             }
         } else {
             if (lastToastError != -99) {
                 lastToastError = -99
-                debugToast("Jarvis wake error: no speech service")
+                debugToast("Jarvis wake error: install an on-device speech service")
             }
-            scheduleRestart(3000L)
+            isListening = false
+            unmuteBeep()
             return
         }
 

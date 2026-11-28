@@ -41,14 +41,11 @@ import com.opendroid.ai.data.models.effectiveGrantedActions
 import com.opendroid.ai.data.models.resolvedAutoMode
 import com.opendroid.ai.data.models.resolvedOllamaTimeoutSeconds
 import com.opendroid.ai.core.llm.OnDeviceModelRegistry
-import com.opendroid.ai.core.llm.OnDeviceBackend
 import com.opendroid.ai.core.llm.ConnectionTestState
 import com.opendroid.ai.core.llm.error.LLMError
 import com.opendroid.ai.core.security.ProviderCredentialRecoveryState
 import com.opendroid.ai.core.service.McpConfigRecoveryState
 import com.opendroid.ai.data.repository.ProviderCredentialPersistenceState
-import com.google.mlkit.genai.prompt.*
-import com.google.mlkit.genai.common.FeatureStatus
 import com.opendroid.ai.ui.theme.*
 import com.opendroid.ai.ui.viewmodel.SettingsViewModel
 import com.opendroid.ai.data.db.entities.ModelEntity
@@ -96,6 +93,8 @@ fun SettingsScreen(
     val platformRole by viewModel.platformRole.collectAsState()
     val canManageBrain = platformRole == "owner" || platformRole == "admin"
     val platformAdmins by viewModel.platformAdmins.collectAsState()
+    val platformOverview by viewModel.platformOverview.collectAsState()
+    val dailyUsage by viewModel.dailyUsage.collectAsState()
     val adminEmail by viewModel.adminEmail.collectAsState()
     val adminManagementStatus by viewModel.adminManagementStatus.collectAsState()
     val teams by viewModel.teams.collectAsState()
@@ -320,6 +319,20 @@ fun SettingsScreen(
                             fontSize = 12.sp,
                             color = if (jarvisAccountStatus == "Signed in") Color(0xFF64D98B) else TextSecondary
                         )
+                        if (jarvisAccountStatus == "Signed in" && dailyUsage != null) {
+                            val usage = dailyUsage!!
+                            Text(
+                                text = "CLOUD REQUESTS TODAY: ${usage.used}/${usage.dailyLimit} · ${usage.remaining} LEFT",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = if (usage.remaining > 0) AccentCyan else Color(0xFFFFB454)
+                            )
+                            Text(
+                                text = "Daily free-tier limit. Resets by UTC day; provider quotas may be lower. Unlimited credits are not included.",
+                                fontSize = 10.sp,
+                                color = TextSecondary
+                            )
+                        }
                         if (!viewModel.jarvisCloudConfigured) {
                             Text(
                                 text = "Cloud URL is not configured in this build.",
@@ -394,6 +407,49 @@ fun SettingsScreen(
 
 
             if (platformRole == "owner") {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth().border(1.dp, BorderColor, RoundedCornerShape(12.dp)),
+                        colors = CardDefaults.cardColors(containerColor = CardBackground)
+                    ) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Text("PLATFORM MONITOR", fontSize = 11.sp, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace, color = AccentCyan)
+                            val overview = platformOverview
+                            if (overview == null) {
+                                Text("Overview is loading or temporarily unavailable.", fontSize = 12.sp, color = TextSecondary)
+                            } else {
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Column { Text("USERS", fontSize = 9.sp, color = TextSecondary); Text(overview.totalUsers.toString(), fontSize = 20.sp, color = TextPrimary, fontWeight = FontWeight.Bold) }
+                                    Column { Text("ACTIVE SESSIONS", fontSize = 9.sp, color = TextSecondary); Text(overview.activeSessions.toString(), fontSize = 20.sp, color = TextPrimary, fontWeight = FontWeight.Bold) }
+                                    Column { Text("REQUESTS TODAY", fontSize = 9.sp, color = TextSecondary); Text(overview.requestsToday.toString(), fontSize = 20.sp, color = TextPrimary, fontWeight = FontWeight.Bold) }
+                                }
+                                Text("Conversations: ${overview.conversations}", fontSize = 11.sp, color = TextSecondary)
+                                Text("RECENT ACCOUNTS", fontSize = 10.sp, color = AccentCyan, fontWeight = FontWeight.Bold)
+                                if (overview.recentAccounts.isEmpty()) {
+                                    Text("No registered accounts yet.", fontSize = 11.sp, color = TextSecondary)
+                                } else {
+                                    overview.recentAccounts.forEach { account ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(account.name, fontSize = 12.sp, color = TextPrimary)
+                                            Text("${account.email} · ${if (account.emailVerified) "verified" else "unverified"}", fontSize = 10.sp, color = TextSecondary)
+                                        }
+                                    }
+                                }
+                                Text("RECENT SECURITY / PLATFORM EVENTS", fontSize = 10.sp, color = AccentCyan, fontWeight = FontWeight.Bold)
+                                if (overview.recentEvents.isEmpty()) {
+                                    Text("No recent platform events.", fontSize = 11.sp, color = TextSecondary)
+                                } else {
+                                    overview.recentEvents.forEach { event ->
+                                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                            Text(event.eventType, fontSize = 12.sp, color = TextPrimary)
+                                            Text("${event.resourceType} · ${event.actorEmail.ifBlank { "system" }} · ${event.createdAt}", fontSize = 10.sp, color = TextSecondary)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth().border(1.dp, AccentCyan, RoundedCornerShape(12.dp)),
@@ -991,158 +1047,13 @@ fun SettingsScreen(
                             )
                             if (activeSpec != null) {
                                 Text(
-                                    text = "Backend: ${if (activeSpec.backend == OnDeviceBackend.AI_CORE) "Android AI Core" else "LiteRT-LM"}",
+                                    text = "Backend: LiteRT-LM",
                                     fontSize = 11.sp,
                                     color = TextSecondary
                                 )
                             }
 
                             Spacer(modifier = Modifier.height(16.dp))
-
-                            // ─── AI Core Backend Section ───
-                            Text(
-                                text = "ANDROID AI CORE",
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace,
-                                color = AccentCyan
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-
-                            var gemma4Status by remember { mutableStateOf("Checking...") }
-                            var showGemma4Download by remember { mutableStateOf(false) }
-                            var gemma3nStatus by remember { mutableStateOf("Checking...") }
-                            var showGemma3nDownload by remember { mutableStateOf(false) }
-
-                            LaunchedEffect(Unit) {
-                                // Check Gemma 4 (default/stable)
-                                try {
-                                    val client = Generation.getClient()
-                                    val status = client.checkStatus()
-                                    gemma4Status = when (status) {
-                                        FeatureStatus.AVAILABLE -> "Available and ready"
-                                        FeatureStatus.DOWNLOADABLE -> {
-                                            showGemma4Download = true
-                                            "Download needed"
-                                        }
-                                        FeatureStatus.DOWNLOADING -> "Downloading..."
-                                        FeatureStatus.UNAVAILABLE -> "Not supported on this device"
-                                        else -> "Unknown"
-                                    }
-                                } catch (e: Exception) {
-                                    gemma4Status = "Not supported on this device"
-                                }
-
-                                // Check Gemma 3n (preview/fast)
-                                try {
-                                    val previewConfig = generationConfig {
-                                        modelConfig = modelConfig {
-                                            releaseStage = ModelReleaseStage.PREVIEW
-                                            preference = ModelPreference.FAST
-                                        }
-                                    }
-                                    val client3n = Generation.getClient(previewConfig)
-                                    val status3n = client3n.checkStatus()
-                                    gemma3nStatus = when (status3n) {
-                                        FeatureStatus.AVAILABLE -> "Available and ready"
-                                        FeatureStatus.DOWNLOADABLE -> {
-                                            showGemma3nDownload = true
-                                            "Download needed"
-                                        }
-                                        FeatureStatus.DOWNLOADING -> "Downloading..."
-                                        FeatureStatus.UNAVAILABLE -> "Not supported on this device"
-                                        else -> "Unknown"
-                                    }
-                                } catch (e: Exception) {
-                                    gemma3nStatus = "Not supported on this device"
-                                }
-                            }
-
-                            // Gemma 4 AI Core row
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Gemma 4", fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    text = gemma4Status,
-                                    fontSize = 11.sp,
-                                    color = if (gemma4Status.contains("ready")) AccentCyan else TextSecondary
-                                )
-                            }
-                            if (showGemma4Download) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            try {
-                                                val client = Generation.getClient()
-                                                gemma4Status = "Downloading..."
-                                                showGemma4Download = false
-                                                client.download().collect { }
-                                                gemma4Status = "Download complete"
-                                            } catch (e: Exception) {
-                                                gemma4Status = "Download failed: ${e.localizedMessage}"
-                                                showGemma4Download = true
-                                            }
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = TextPrimary),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Download Gemma 4 (AI Core)", color = DarkBackground)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(8.dp))
-
-                            // Gemma 3n AI Core row
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text("Gemma 3n Multimodal", fontSize = 13.sp, color = TextPrimary, fontWeight = FontWeight.SemiBold)
-                                Text(
-                                    text = gemma3nStatus,
-                                    fontSize = 11.sp,
-                                    color = if (gemma3nStatus.contains("ready")) AccentCyan else TextSecondary
-                                )
-                            }
-                            if (showGemma3nDownload) {
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Button(
-                                    onClick = {
-                                        coroutineScope.launch {
-                                            try {
-                                                val previewConfig = generationConfig {
-                                                    modelConfig = modelConfig {
-                                                        releaseStage = ModelReleaseStage.PREVIEW
-                                                        preference = ModelPreference.FAST
-                                                    }
-                                                }
-                                                val client3n = Generation.getClient(previewConfig)
-                                                gemma3nStatus = "Downloading..."
-                                                showGemma3nDownload = false
-                                                client3n.download().collect { }
-                                                gemma3nStatus = "Download complete"
-                                            } catch (e: Exception) {
-                                                gemma3nStatus = "Download failed: ${e.localizedMessage}"
-                                                showGemma3nDownload = true
-                                            }
-                                        }
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = AccentCyan),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("Download Gemma 3n (AI Core)", color = DarkBackground)
-                                }
-                            }
-
-                            Spacer(modifier = Modifier.height(16.dp))
-                            Divider(color = BorderColor, thickness = 1.dp)
-                            Spacer(modifier = Modifier.height(12.dp))
 
                             // ─── Hugging Face Section ───
                             Text(

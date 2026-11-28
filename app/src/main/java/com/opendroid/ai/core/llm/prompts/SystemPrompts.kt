@@ -155,7 +155,7 @@ $schema
             SECTION F: DEPENDENCY & FALLBACK RULES
             - "dependsOn" defaults to [] (empty array) for most steps. Only use dependsOn when a step genuinely needs data output from a prior step (e.g., using a search result, user input from ASK_USER, or contact lookup).
             - Do NOT add dependsOn for simple sequential ordering — steps already execute in order.
-            - Only DATA-PRODUCING actions (like WEB_SEARCH, GET_WEATHER, ASK_USER, CALCULATE) should be referenced in dependsOn. Non-data actions (like OPEN_APP, TOGGLE_WIFI) should NEVER be in dependsOn.
+            - Only DATA-PRODUCING actions (like GET_WEATHER, ASK_USER, CALCULATE) should be referenced in dependsOn. Non-data actions (like OPEN_APP, TOGGLE_WIFI) should NEVER be in dependsOn.
             - Use "dependsOn" (array of stepId strings) to define sequential execution requirements.
             - Provide a valid alternative fallback action name in the "fallback" field for steps that are network-sensitive or might fail.
             - Every param value is a string. To use a prior step's output, write ${"$$"}<stepId> inside the value, e.g. Step 1: ASK_USER {question: "What should I tell Mom?"}, Step 2: SEND_SMS {contact: "Mom", message: "${"$$"}s1"}, or SEND_SMS {message: "Today's weather: ${"$$"}s1"}.

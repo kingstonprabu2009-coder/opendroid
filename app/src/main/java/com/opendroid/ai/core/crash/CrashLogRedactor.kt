@@ -12,9 +12,8 @@ package com.opendroid.ai.core.crash
  * messages straight out of the response body - for example
  * `IOException("OpenAI request failed: Code ${'$'}{response.code} - ${'$'}responseBody")`
  * in `OpenAIProvider` - and OpenAI's 401 body echoes a partially masked copy of
- * the submitted key. Gemini goes further and carries its key in the request URL
- * (`GeminiProvider.kt`, `?key=${'$'}apiKey`), so any message quoting that URL
- * carries the key verbatim.
+ * the submitted key. Legacy integrations can also carry keys in URL query
+ * parameters, so the query-parameter rule below redacts those values as well.
  *
  * Redaction happens at capture time rather than at share time, so the secret
  * never reaches the database in the first place. There is no un-redacted copy to
@@ -37,7 +36,7 @@ object CrashLogRedactor {
      * inside a URL is replaced whole rather than leaving the `key=` behind.
      */
     private val rules: List<Pair<Regex, String>> = listOf(
-        // Secrets carried in a URL query string. Gemini's key transport.
+        // Secrets carried in a URL query string.
         Regex(
             """([?&](?:key|api[_-]?key|access[_-]?token|auth[_-]?token|token|password|secret)=)[^&\s"'<>\\]+""",
             RegexOption.IGNORE_CASE

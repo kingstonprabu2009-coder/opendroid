@@ -1,15 +1,10 @@
 package com.opendroid.ai.core.llm
 
-import android.util.Log
 import com.opendroid.ai.actions.ActionDispatcher
-import com.opendroid.ai.core.agent.ActionSchema
 import com.opendroid.ai.core.agent.DeviceStateProvider
 import com.opendroid.ai.core.agent.IntentClassifier
 import com.opendroid.ai.core.llm.error.LLMErrorMapper
 import com.opendroid.ai.core.llm.error.SecretRegistry
-import com.opendroid.ai.core.llm.providers.*
-import com.opendroid.ai.core.llm.providers.HybridOnDeviceProvider
-import com.opendroid.ai.core.llm.providers.LiteRTLMProvider
 import com.opendroid.ai.data.models.LLMConfig
 import com.opendroid.ai.data.models.selectedModelFor
 import com.opendroid.ai.data.repository.SettingsRepository
@@ -21,36 +16,17 @@ import kotlinx.coroutines.flow.first
 import kotlin.math.min
 import kotlin.random.Random
 import javax.inject.Inject
-import javax.inject.Provider
 import javax.inject.Singleton
 
 @Singleton
 class LLMProviderFactory @Inject constructor(
-    private val claudeProvider: Provider<ClaudeProvider>,
-    private val openAIProvider: Provider<OpenAIProvider>,
-    private val geminiProvider: Provider<GeminiProvider>,
-    private val jarvisCloudProvider: Provider<JarvisCloudProvider>,
-    private val mistralProvider: Provider<MistralProvider>,
-    private val groqProvider: Provider<GroqProvider>,
-    private val ollamaProvider: Provider<OllamaProvider>,
-    private val openRouterProvider: Provider<OpenRouterProvider>,
-    private val togetherAIProvider: Provider<TogetherAIProvider>,
-    private val cohereProvider: Provider<CohereProvider>,
-    private val deepSeekProvider: Provider<DeepSeekProvider>,
-    private val copilotProvider: Provider<CopilotProvider>,
-    private val opencodeGoProvider: Provider<OpencodeGoProvider>,
-    private val customOpenAIProvider: Provider<CustomOpenAIProvider>,
-    private val gemmaProvider: Provider<GemmaProvider>,
-    private val liteRTLMProvider: Provider<LiteRTLMProvider>,
-    private val hybridOnDeviceProvider: Provider<HybridOnDeviceProvider>,
-    private val llamaCppProvider: Provider<LlamaCppProvider>,
+    private val jarvisCloudProvider: JarvisCloudProvider,
     private val settingsRepository: SettingsRepository,
     private val onDeviceLatencyTracker: OnDeviceLatencyTracker,
     private val actionDispatcher: dagger.Lazy<ActionDispatcher>,
     private val intentClassifier: dagger.Lazy<IntentClassifier>,
     private val deviceStateProvider: DeviceStateProvider
 ) {
-
     private val planningRequestRewriter = PlanningRequestRewriter(
         classifyComplexity = { intentClassifier.get().classifyComplexity(it) },
         registeredActions = { actionDispatcher.get().getAllRegisteredActions() },
@@ -58,36 +34,13 @@ class LLMProviderFactory @Inject constructor(
     )
 
     fun getProviderByName(name: String): LLMProvider {
-        val rawProvider = when (name) {
-            "Anthropic Claude" -> claudeProvider.get()
-            "OpenAI" -> openAIProvider.get()
-            "Google Gemini" -> geminiProvider.get()
-            "JARVIS Cloud" -> jarvisCloudProvider.get()
-            "Mistral AI" -> mistralProvider.get()
-            "Groq" -> groqProvider.get()
-            "Ollama" -> ollamaProvider.get()
-            "OpenRouter" -> openRouterProvider.get()
-            "Together AI" -> togetherAIProvider.get()
-            "Cohere" -> cohereProvider.get()
-            "DeepSeek" -> deepSeekProvider.get()
-            "Copilot API" -> copilotProvider.get()
-            "Opencode-Go" -> opencodeGoProvider.get()
-            "Custom OpenAI Compatible" -> customOpenAIProvider.get()
-            // Hybrid on-device: both old and new names map here
-            "On-Device AI",
-            "Gemma 4 (On-device)" -> hybridOnDeviceProvider.get()
-            // Direct backend access (for advanced users / testing)
-            "LiteRT-LM (On-device)" -> liteRTLMProvider.get()
-            "Llama.cpp (Local 7B)" -> llamaCppProvider.get()
-            else -> {
-                // A name this build doesn't know, such as a provider renamed or removed
-                // without a ProviderCatalog alias. Never substitute another vendor (#82).
-                Log.w(TAG, "Unknown LLM provider persisted; refusing to route it to another vendor.")
-                return UnknownProvider(name)
-            }
+        if (!isFirstPartyBrainProvider(name)) {
+            // Legacy provider names may remain in old settings, but they must never
+            // activate another model/API. Refuse them before constructing a provider.
+            return UnknownProvider(name)
         }
         return WrappedLLMProvider(
-            delegate = rawProvider,
+            delegate = jarvisCloudProvider,
             configProvider = { settingsRepository.llmConfig.first() },
             requestRewriter = planningRequestRewriter::rewrite
         )
@@ -106,34 +59,15 @@ class LLMProviderFactory @Inject constructor(
     suspend fun recordPlanningLatency(response: LLMResponse): LatencyBudgetResult? =
         runCatching { onDeviceLatencyTracker.recordPlanning(response) }.getOrNull()
 
-    private fun isConfigured(config: LLMConfig, providerName: String): Boolean {
-        val provider = ProviderCatalog.canonicalName(providerName)
-        if (ProviderCatalog.isOnDevice(provider)) return true
-        return when (provider) {
-            "Ollama" -> config.ollamaUrl.isNotBlank()
-            "Copilot API" -> config.copilotUrl.isNotBlank()
-            "Custom OpenAI Compatible" ->
-                config.customEndpoints[provider].orEmpty().isNotBlank() &&
-                    config.apiKeys[provider].orEmpty().isNotBlank()
-            else -> {
-                val model = config.selectedModelFor(provider)
-                !ProviderCatalog.requiresApiKey(provider) ||
-                    (provider == "Google Gemini" && model == "gemini-nano") ||
-                    config.apiKeys[provider].orEmpty().isNotBlank()
-            }
-        }
-    }
-
-    private companion object {
-        const val TAG = "LLMProviderFactory"
-    }
 }
 
+internal fun isFirstPartyBrainProvider(name: String): Boolean =
+    ProviderCatalog.canonicalName(name) == "JARVIS Cloud"
+
 /**
- * Stands in for a saved provider name this build doesn't know. Every call fails with
- * LLMError.ProviderUnrecognized before any network access, so no prompt reaches a
- * vendor the user didn't choose. Not wrapped: [WrappedLLMProvider] resolves the
- * provider's default model, which an unknown name doesn't have.
+ * Stands in for any legacy or unsupported provider name. Every call fails with
+ * LLMError.ProviderUnrecognized before network access, so no prompt reaches a
+ * non-JARVIS provider. Not wrapped: [WrappedLLMProvider] resolves a provider model.
  */
 private class UnknownProvider(override val name: String) : LLMProvider {
     override val availableModels: List<String> = emptyList()
@@ -179,23 +113,12 @@ class WrappedLLMProvider(
         messages: List<com.opendroid.ai.data.models.ChatMessage>,
         tools: List<ToolDefinition>
     ): Flow<StreamChunk> = flow {
-        if (delegate.name == "Llama.cpp (Local 7B)") {
-            val request = LLMRequest(
-                systemPrompt = "You are an autonomous AI agent for Android.",
-                messages = messages,
-                tools = tools.map { Tool(it.name, it.description, it.parameters) }
-            )
-            val resolved = resolveRequest(request)
-            delegate.generate(resolved.messages, tools).collect { emit(it) }
-        } else {
-            val systemPrompt = "You are an autonomous AI agent for Android."
-            val request = LLMRequest(
-                systemPrompt = systemPrompt,
-                messages = messages,
-                tools = tools.map { Tool(it.name, it.description, it.parameters) }
-            )
-            streamComplete(request).collect { emit(StreamChunk.Content(it)) }
-        }
+        val request = LLMRequest(
+            systemPrompt = "You are an autonomous AI agent for Android.",
+            messages = messages,
+            tools = tools.map { Tool(it.name, it.description, it.parameters) }
+        )
+        streamComplete(request).collect { emit(StreamChunk.Content(it)) }
     }
 
     override fun streamComplete(request: LLMRequest): Flow<String> = flow {
@@ -254,10 +177,7 @@ class WrappedLLMProvider(
         }
         val apiKey = config.apiKeys[provider].orEmpty()
 
-        if (ProviderCatalog.requiresApiKey(provider) &&
-            !(provider == "Google Gemini" && model == "gemini-nano") &&
-            apiKey.isBlank()
-        ) {
+        if (ProviderCatalog.requiresApiKey(provider) && apiKey.isBlank()) {
             throw LLMErrorMapper.authMissing(provider, model)
         }
         if (provider in setOf("Custom OpenAI Compatible", "Copilot API", "Ollama") && endpoint.isBlank()) {

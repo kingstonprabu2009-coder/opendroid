@@ -82,4 +82,9 @@ object GenericAppAutomator {
         val service = OpenDroidAccessibilityService.getInstance() ?: return false
         return service.clickCoordinates(x, y)
     }
+
+    fun swipeCoordinates(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long): Boolean {
+        val service = OpenDroidAccessibilityService.getInstance() ?: return false
+        return service.swipeCoordinates(startX, startY, endX, endY, durationMs)
+    }
 }

@@ -2,8 +2,6 @@ package com.opendroid.ai.ui.screens
 
 import android.content.Context
 import android.media.MediaPlayer
-import android.speech.tts.TextToSpeech
-import android.speech.tts.UtteranceProgressListener
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -75,14 +73,10 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val config by viewModel.llmConfig.collectAsState()
     val prefs = remember { context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE) }
-    var provider by remember { mutableStateOf(prefs.getString("provider", "phone") ?: "phone") }
+    var provider by remember { mutableStateOf((prefs.getString("provider", "edge") ?: "edge").let { if (it == "elevenlabs") it else "edge" }) }
     var selectedVoiceId by remember { mutableStateOf(prefs.getString("edge_voice", "ta-IN-ValluvarNeural") ?: "ta-IN-ValluvarNeural") }
     var selectedPitch by remember { mutableStateOf(prefs.getString("edge_pitch", "+0Hz") ?: "+0Hz") }
-    var phoneVoiceOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var selectedPhoneVoice by remember { mutableStateOf(prefs.getString("voice_ta", "") ?: "") }
-    var phoneVoiceMenuOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
-    var liveOn by remember { mutableStateOf(prefs.getBoolean("live_gemini", false)) }
     var batterySaver by remember { mutableStateOf(prefs.getBoolean("battery_saver", true)) }
     var bargeIn by remember { mutableStateOf(prefs.getBoolean("barge_in", true)) }
     var status by remember { mutableStateOf("Choose a voice, then tap Test Current Voice.") }
@@ -91,25 +85,7 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
     val edgeClient = remember { EdgeTtsClient(OkHttpClient.Builder().callTimeout(12, TimeUnit.SECONDS).build()) }
     val previewClient = remember { OkHttpClient.Builder().callTimeout(15, TimeUnit.SECONDS).build() }
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
-    var phoneTts by remember { mutableStateOf<TextToSpeech?>(null) }
     var activeSample by remember { mutableStateOf<File?>(null) }
-
-    // Enumerate the actual Tamil voices installed on this phone. The picker never
-    // advertises voices that the active Android TTS engine cannot select.
-    DisposableEffect(context) {
-        var probe: TextToSpeech? = null
-        probe = TextToSpeech(context) { result ->
-            val engine = probe
-            if (result == TextToSpeech.SUCCESS && engine != null) {
-                runCatching { engine.setLanguage(Locale.forLanguageTag("ta-IN")) }
-                phoneVoiceOptions = engine.voices.orEmpty()
-                    .filter { it.locale.language == "ta" }
-                    .sortedBy { it.name }
-                    .map { voice -> voice.name to if (voice.isNetworkConnectionRequired) "Online" else "Offline" }
-            }
-        }
-        onDispose { runCatching { probe?.shutdown() } }
-    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -117,8 +93,6 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
             runCatching { player?.stop() }
             runCatching { player?.release() }
             player = null
-            runCatching { phoneTts?.stop(); phoneTts?.shutdown() }
-            phoneTts = null
             activeSample?.delete()
             activeSample = null
         }
@@ -144,39 +118,6 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
         if (testing) return
         testing = true
         status = "Preparing selected voice…"
-        if (provider == "phone") {
-            runCatching { phoneTts?.stop(); phoneTts?.shutdown() }
-            var engine: TextToSpeech? = null
-            engine = TextToSpeech(context) { result ->
-                val tts = engine
-                if (result == TextToSpeech.SUCCESS && tts != null) {
-                    val lang = tts.setLanguage(Locale.forLanguageTag("ta-IN"))
-                    val savedPhoneVoice = prefs.getString("voice_ta", null)
-                    if (!savedPhoneVoice.isNullOrBlank()) {
-                        tts.voices?.firstOrNull { it.name == savedPhoneVoice }?.let { tts.setVoice(it) }
-                    }
-                    if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
-                        status = "Tamil voice data is missing. Install Tamil voice data in Android Text-to-speech settings."
-                        testing = false
-                        tts.shutdown()
-                        return@TextToSpeech
-                    }
-                    tts.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
-                        override fun onStart(utteranceId: String?) { status = "Playing selected phone voice…" }
-                        override fun onDone(utteranceId: String?) { status = "Voice test completed."; testing = false; tts.shutdown(); if (phoneTts === tts) phoneTts = null }
-                        @Deprecated("Deprecated in Java") override fun onError(utteranceId: String?) { status = "Phone voice playback failed."; testing = false; tts.shutdown(); if (phoneTts === tts) phoneTts = null }
-                    })
-                    tts.speak("வணக்கம், நான் ஜார்விஸ். இது நீங்கள் தேர்ந்தெடுத்த குரல் சோதனை.", TextToSpeech.QUEUE_FLUSH, null, "jarvis_voice_preview")
-                } else {
-                    status = "Phone text-to-speech engine could not start."
-                    testing = false
-                    tts?.shutdown()
-                }
-            }
-            phoneTts = engine
-            return
-        }
-
         scope.launch {
             val file = File.createTempFile("jarvis_voice_preview_", ".mp3", context.cacheDir)
             val success = withContext(Dispatchers.IO) {
@@ -216,7 +157,7 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
                 file.delete(); testing = false
                 status = when {
                     provider == "elevenlabs" && config.elevenLabsApiKey.isBlank() -> "Add your ElevenLabs API key below first."
-                    provider == "edge" -> "Edge Neural unavailable (" + (edgeClient.lastFailureReason() ?: "no audio received") + "). Check connection; JARVIS replies still fall back to free Phone TTS."
+                    provider == "edge" -> "Edge Neural unavailable (" + (edgeClient.lastFailureReason() ?: "no audio received") + "). Check your connection; no Google/system TTS fallback is enabled."
                     else -> "Voice service unavailable. Check internet/API key and try again."
                 }
             }
@@ -237,39 +178,11 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
             Card(colors = CardDefaults.cardColors(containerColor = CardBackground), shape = RoundedCornerShape(14.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("VOICE ENGINE", color = AccentCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    listOf("edge" to "Edge Neural · online", "phone" to "Phone TTS · device", "elevenlabs" to "ElevenLabs · API key").forEach { (id, label) ->
+                    listOf("edge" to "Edge Neural · online", "elevenlabs" to "ElevenLabs · API key").forEach { (id, label) ->
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             Text(label, color = TextPrimary, modifier = Modifier.weight(1f))
                             Switch(checked = provider == id, onCheckedChange = { checked -> if (checked) { provider = id; prefs.edit().putString("provider", id).apply() } })
                         }
-                    }
-                    if (provider == "phone") {
-                        Text("Installed Tamil voice", color = TextSecondary, fontSize = 12.sp)
-                        androidx.compose.foundation.layout.Box {
-                            OutlinedButton(onClick = { phoneVoiceMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text(phoneVoiceOptions.firstOrNull { it.first == selectedPhoneVoice }?.first
-                                    ?: if (selectedPhoneVoice.isBlank()) "Use phone default voice" else selectedPhoneVoice)
-                            }
-                            DropdownMenu(expanded = phoneVoiceMenuOpen, onDismissRequest = { phoneVoiceMenuOpen = false }) {
-                                DropdownMenuItem(text = { Text("Use phone default voice") }, onClick = {
-                                    selectedPhoneVoice = ""
-                                    prefs.edit().remove("voice_ta").apply()
-                                    phoneVoiceMenuOpen = false
-                                })
-                                phoneVoiceOptions.forEach { (voiceName, availability) ->
-                                    DropdownMenuItem(text = { Text("$voiceName · $availability") }, onClick = {
-                                        selectedPhoneVoice = voiceName
-                                        prefs.edit().putString("voice_ta", voiceName).apply()
-                                        provider = "phone"
-                                        prefs.edit().putString("provider", "phone").apply()
-                                        phoneVoiceMenuOpen = false
-                                    })
-                                }
-                            }
-                        }
-                        Text(if (phoneVoiceOptions.isEmpty()) "No installed Tamil voice found yet. Install Tamil voice data in Android Text-to-speech settings."
-                            else "These are the Tamil voices actually installed on this phone. Offline voices need no API credits.",
-                            color = TextSecondary, fontSize = 10.sp)
                     }
                     if (provider == "edge") {
                         Text("Tamil neural voice", color = TextSecondary, fontSize = 12.sp)
@@ -288,7 +201,7 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
                                 }
                             }
                         }
-                        Text("Regional Edge voices need internet. This is an unofficial online service, not an included GitHub model; availability can change. Phone voices are the no-credit local option.", color = TextSecondary, fontSize = 10.sp)
+                        Text("Regional Edge voices need internet. This is an unofficial online service, not an included GitHub model; availability can change. Google/system TTS fallback is disabled.", color = TextSecondary, fontSize = 10.sp)
                     }
                     if (provider == "elevenlabs") {
                         OutlinedTextField(value = config.elevenLabsApiKey, onValueChange = viewModel::updateElevenLabsApiKey,
@@ -308,11 +221,7 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("VOICE BEHAVIOUR", color = AccentCyan, fontWeight = FontWeight.Bold, fontSize = 12.sp)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column(Modifier.weight(1f)) { Text("Gemini Live streaming", color = TextPrimary); Text("Requires Gemini key", color = TextSecondary, fontSize = 10.sp) }
-                        Switch(checked = liveOn, onCheckedChange = { liveOn = it; prefs.edit().putBoolean("live_gemini", it).apply() })
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column(Modifier.weight(1f)) { Text("Live-call battery saver", color = TextPrimary); Text("End after 40 seconds of silence", color = TextSecondary, fontSize = 10.sp) }
+                        Column(Modifier.weight(1f)) { Text("Conversation battery saver", color = TextPrimary); Text("Reduce repeated listening after silence", color = TextSecondary, fontSize = 10.sp) }
                         Switch(checked = batterySaver, onCheckedChange = { batterySaver = it; prefs.edit().putBoolean("battery_saver", it).apply() })
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

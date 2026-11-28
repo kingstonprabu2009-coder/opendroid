@@ -6,7 +6,6 @@ compatibility_flags = ["nodejs_compat"]
 [vars]
 JARVIS_ENV = "production"
 RESEND_FROM_EMAIL = "onboarding@resend.dev"
-JARVIS_DAILY_REQUEST_LIMIT = "0"
 ALLOWED_ORIGIN = "https://jarvis-cloud-api.kingstonprabu2009.workers.dev"
 BETTER_AUTH_URL = "https://jarvis-cloud-api.kingstonprabu2009.workers.dev"
 

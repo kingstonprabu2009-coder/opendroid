@@ -291,64 +291,6 @@ class OpenDroidService : Service() {
     }
     private var silentRounds = 0
 
-    private var live: com.opendroid.ai.core.voice.GeminiLiveClient? = null
-
-    /** Real-time streaming call with Gemini Live. Returns false if it cannot start (no key, switched off). */
-    private fun tryStartLive(): Boolean {
-        val enabled = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("live_gemini", false)
-        if (!enabled || live?.isRunning == true) return enabled && live?.isRunning == true
-        serviceScope.launch {
-            val key = settingsRepository.llmConfig.first().apiKeys["Google Gemini"].orEmpty()
-            if (key.isBlank()) {
-                // No Gemini key: use the older Groq pipeline instead.
-                VoiceSubtitles.reply.value = "Old mode (no Gemini key set)"
-                conversationActive = true
-                startListeningForQuery()
-                return@launch
-            }
-            conversationActive = true
-            agentLoop.speakReplies = false // the live voice speaks; the agent must stay silent
-            VoiceSubtitles.clear()
-            agentLoop.setAgentState(AgentState.Listening)
-            live = com.opendroid.ai.core.voice.GeminiLiveClient(
-                context = this@OpenDroidService,
-                onStatus = { st -> serviceScope.launch {
-                        VoiceSubtitles.reply.value = st
-                        VoiceSubtitles.liveSpeaking.value = st == "Speaking"
-                    } },
-                onTool = { name, args, respond ->
-                    serviceScope.launch {
-                        val result = try { runLiveTool(name, args) } catch (e: Exception) { "FAILED: " + (e.message ?: "error") }
-                        respond(result)
-                    }
-                },
-                onStopRequested = { serviceScope.launch { endLive(); handleBye() } },
-                onInputTranscript = { text ->
-                    serviceScope.launch {
-                        VoiceSubtitles.heard.value = text
-                        VoiceSubtitles.reply.value = ""
-                    }
-                },
-                onOutputTranscript = { text ->
-                    serviceScope.launch { VoiceSubtitles.reply.value = text }
-                },
-                onClosed = { reason ->
-                    serviceScope.launch {
-                        VoiceSubtitles.reply.value = reason
-                        endLive()
-                        startWakeWordDetection()
-                    }
-                }
-            ).also {
-                val saver = getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getBoolean("battery_saver", true)
-                val notes = getSharedPreferences("jarvis_memory", Context.MODE_PRIVATE).getString("notes", "").orEmpty()
-                val memory = if (notes.isBlank()) "" else "\nThings you have learned from the user, follow them:\n" + notes
-                it.start(key, idleCloseMs = if (saver) 40_000L else 0L, memory = memory)
-            }
-        }
-        return true
-    }
-
     private fun describeResult(r: com.opendroid.ai.actions.base.ActionResult): String =
         if (r.success) "SUCCESS: " + (r.data ?: "done") else "FAILED: " + (r.error ?: "unknown error")
 
@@ -471,9 +413,9 @@ class OpenDroidService : Service() {
     }
 
     private fun endLive() {
+        // End the current voice conversation; all speech now uses the provider-neutral
+        // speech-recognition + JARVIS Cloud response pipeline.
         VoiceSubtitles.liveSpeaking.value = false
-        live?.stop()
-        live = null
         conversationActive = false
         if (agentLoop.agentState.value is AgentState.Listening || agentLoop.agentState.value is AgentState.Speaking) {
             agentLoop.setAgentState(AgentState.Idle)
@@ -483,7 +425,6 @@ class OpenDroidService : Service() {
     private fun onWakeWordHeard() {
         cancelListening()
         stopCurrentSpeech()
-        if (tryStartLive()) return
         conversationActive = true
         silentRounds = 0
         cancelListening()

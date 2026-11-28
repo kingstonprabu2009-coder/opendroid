@@ -311,7 +311,7 @@ class WrappedLLMProviderTest {
     @Test
     fun `non-active provider complete uses that provider selected model`() = runBlocking {
         val seen = mutableListOf<String?>()
-        val delegate = FakeProvider("Google Gemini", completion = { req ->
+        val delegate = FakeProvider("Mistral AI", completion = { req ->
             seen += req.model
             response(req)
         })
@@ -323,16 +323,16 @@ class WrappedLLMProviderTest {
                     activeModel = "gpt-4o",
                     selectedModels = mapOf(
                         "OpenAI" to "gpt-4o",
-                        "Google Gemini" to "gemini-1.5-pro"
+                        "Mistral AI" to "mistral-large-latest"
                     ),
-                    apiKeys = mapOf("Google Gemini" to "gemini-key")
+                    apiKeys = mapOf("Mistral AI" to "mistral-key")
                 )
             }
         )
 
         wrapper.complete(request())
 
-        assertEquals(listOf("gemini-1.5-pro"), seen)
+        assertEquals(listOf("mistral-large-latest"), seen)
     }
 
     private fun wrapper(delegate: LLMProvider) = WrappedLLMProvider(

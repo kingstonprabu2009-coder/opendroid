@@ -90,6 +90,8 @@ class GroqSpeech(
                     .trim().trim('"')
                     .ifBlank { raw }
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             raw
         }

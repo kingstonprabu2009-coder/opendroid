@@ -7,8 +7,6 @@ import kotlinx.serialization.Serializable
  * Enumerates the on-device inference backends available.
  */
 enum class OnDeviceBackend {
-    /** Android AI Core (ML Kit GenAI Prompt API) – requires Google Play Services AI Core. */
-    AI_CORE,
     /** LiteRT-LM (formerly TFLite LLM) – runs directly on-device via GPU/NPU delegates. */
     LITERT_LM
 }
@@ -33,7 +31,7 @@ data class OnDeviceModelSpec(
     val backend: OnDeviceBackend,
     /**
      * For LiteRT-LM models: the Hugging Face repo path or local asset path to the
-     * `.litertlm` or `.task` model file.  Ignored for AI_CORE models.
+     * `.litertlm` or `.task` model file.  Used only by LiteRT-LM model artifacts.
      */
     val modelPath: String = "",
     /** The actual model filename on Hugging Face (e.g. "gemma-4-E2B-it.litertlm"). */
@@ -116,26 +114,6 @@ object OnDeviceModelRegistry {
             contextWindow = contextWindow
         )
     }
-
-    // ── AI Core models (existing, unchanged behaviour) ─────────────────
-    private val aiCoreModels = listOf(
-        OnDeviceModelSpec(
-            id = "gemma-4-on-device",
-            displayName = "Gemma 4 (AI Core)",
-            family = "Gemma 4",
-            sizeLabel = "On-device",
-            backend = OnDeviceBackend.AI_CORE,
-            isRecommended = true
-        ),
-        OnDeviceModelSpec(
-            id = "gemma-3n-multimodal",
-            displayName = "Gemma 3n Multimodal (AI Core)",
-            family = "Gemma 3n",
-            sizeLabel = "On-device",
-            backend = OnDeviceBackend.AI_CORE,
-            minSdk = 26
-        )
-    )
 
     // ── LiteRT-LM models ──────────────────────────────────────────────
     private val liteRTModels = listOf(
@@ -254,10 +232,7 @@ object OnDeviceModelRegistry {
     )
 
     /** Every model the app knows about, across all backends. */
-    val allModels: List<OnDeviceModelSpec> = aiCoreModels + liteRTModels
-
-    /** Only AI Core models. */
-    val aiCoreOnly: List<OnDeviceModelSpec> get() = allModels.filter { it.backend == OnDeviceBackend.AI_CORE }
+    val allModels: List<OnDeviceModelSpec> = liteRTModels
 
     /** Only LiteRT-LM models. */
     val liteRTOnly: List<OnDeviceModelSpec> get() = allModels.filter { it.backend == OnDeviceBackend.LITERT_LM }

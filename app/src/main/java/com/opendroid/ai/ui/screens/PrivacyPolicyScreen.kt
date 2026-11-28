@@ -124,7 +124,7 @@ fun PrivacyPolicyScreen(
             item {
                 PolicySection(
                     title = "3. THIRD-PARTY LLM PROVIDERS",
-                    content = "Jarvis sends your queries to the LLM provider you configure (e.g., Google Gemini, OpenAI, Anthropic, Groq, etc.) " +
+                    content = "Jarvis sends your queries to the LLM provider you configure (e.g., JARVIS Cloud or another provider you explicitly configure) " +
                             "to generate responses and action plans. Each provider has its own privacy policy governing how they handle your data.\n\n" +
                             "• Your API keys are stored locally on your device and are never transmitted to Jarvis servers.\n" +
                             "• Query data sent to LLM providers is subject to their respective privacy policies.\n" +

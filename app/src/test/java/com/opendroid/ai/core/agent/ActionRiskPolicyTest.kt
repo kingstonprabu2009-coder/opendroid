@@ -10,6 +10,7 @@ class ActionRiskPolicyTest {
     fun `catalog derives irreversible and advanced risks`() {
         assertEquals(ActionRisk.IRREVERSIBLE, ActionSchema.riskForAction("DELETE_FILE"))
         assertEquals(ActionRisk.ADVANCED_CONTROL, ActionSchema.riskForAction("CLICK_TEXT"))
+        assertEquals(ActionRisk.ADVANCED_CONTROL, ActionSchema.riskForAction("SWIPE_COORDINATES"))
         assertEquals(ActionRisk.SENSITIVE, ActionSchema.riskForAction("SEND_SMS"))
         assertEquals(ActionRisk.READ_ONLY, ActionSchema.riskForAction("WEB_SEARCH"))
     }

@@ -35,70 +35,27 @@ sealed class ConnectionTestState {
 }
 
 object ConnectionTestPlanner {
-    private val onDeviceCanonicalNames = setOf(
-        ProviderCatalog.ON_DEVICE,
-        "LiteRT-LM (On-device)",
-        "Llama.cpp (Local 7B)"
-    )
-
-    fun cloudProviders(): List<String> = ProviderCatalog.providers
-        .filter { spec -> spec.canonicalName !in onDeviceCanonicalNames }
-        .map { spec -> spec.displayName }
+    fun cloudProviders(): List<String> = listOf("JARVIS Cloud")
 
     fun configuredProviders(config: LLMConfig): List<String> =
         cloudProviders().filter { provider -> configurationGap(config, provider) == null }
 
     /**
-     * Returns a local configuration failure without contacting the network, or
-     * null when the provider snapshot is complete enough to probe.
+     * Only the first-party JARVIS Cloud brain can be probed. Legacy provider settings
+     * are intentionally not activated or sent credentials after the cloud-only switch.
      */
     fun configurationGap(config: LLMConfig, providerName: String): ConnectionTestState.ConfigMissing? {
         val provider = ProviderCatalog.canonicalName(providerName)
-        val model = config.selectedModelFor(provider)
-        when (provider) {
-            "Ollama" -> if (config.ollamaUrl.isBlank()) {
-                return ConnectionTestState.ConfigMissing(provider, LLMError.RequestInvalid, 0L)
-            }
-            "Copilot API" -> if (config.copilotUrl.isBlank()) {
-                return ConnectionTestState.ConfigMissing(provider, LLMError.RequestInvalid, 0L)
-            }
-            "Custom OpenAI Compatible" -> {
-                if (config.customEndpoints[provider].isNullOrBlank()) {
-                    return ConnectionTestState.ConfigMissing(provider, LLMError.RequestInvalid, 0L)
-                }
-                if (config.apiKeys[provider].isNullOrBlank()) {
-                    return ConnectionTestState.ConfigMissing(provider, LLMError.AuthMissing, 0L)
-                }
-            }
-            else -> if (ProviderCatalog.requiresApiKey(provider) &&
-                !(provider == "Google Gemini" && model == "gemini-nano") &&
-                config.apiKeys[provider].isNullOrBlank()
-            ) {
-                return ConnectionTestState.ConfigMissing(provider, LLMError.AuthMissing, 0L)
-            }
+        if (!isFirstPartyBrainProvider(provider)) {
+            return ConnectionTestState.ConfigMissing(provider, LLMError.ProviderUnrecognized, 0L)
         }
         return null
     }
 
-    /**
-     * [saved] with [providerName]'s key and endpoint taken from the on-screen [candidate].
-     * The provider under test reads the saved config, and those fields save on a debounce,
-     * so this is written before probing; otherwise a test started right after typing a
-     * key would run against the previous one.
-     */
-    fun withCandidateConnection(saved: LLMConfig, candidate: LLMConfig, providerName: String): LLMConfig {
-        val provider = ProviderCatalog.canonicalName(providerName)
-        val withKey = candidate.apiKeys[provider]
-            ?.let { key -> saved.copy(apiKeys = saved.apiKeys + (provider to key)) }
-            ?: saved
-        return when (provider) {
-            "Ollama" -> withKey.copy(ollamaUrl = candidate.ollamaUrl)
-            "Copilot API" -> withKey.copy(copilotUrl = candidate.copilotUrl)
-            else -> candidate.customEndpoints[provider]
-                ?.let { url -> withKey.copy(customEndpoints = withKey.customEndpoints + (provider to url)) }
-                ?: withKey
-        }
-    }
+    /** Legacy provider key/endpoint edits are ignored; JARVIS Cloud has no user API key. */
+    fun withCandidateConnection(saved: LLMConfig, candidate: LLMConfig, providerName: String): LLMConfig =
+        if (isFirstPartyBrainProvider(providerName)) saved else saved
+
 
     fun fromException(
         provider: String,
@@ -123,12 +80,15 @@ object ConnectionTestPlanner {
         model: String,
         latencyMs: Long,
         testedAtMillis: Long
-    ): ConnectionTestState.Connected = ConnectionTestState.Connected(
+    ): ConnectionTestState.Connected {
+        require(isFirstPartyBrainProvider(provider)) { "Only the JARVIS Cloud brain can be benchmarked." }
+        return ConnectionTestState.Connected(
         provider = ProviderCatalog.canonicalName(provider),
         model = model,
         latencyMs = latencyMs,
         testedAtMillis = testedAtMillis
-    )
+        )
+    }
 
     fun stamp(
         state: ConnectionTestState.ConfigMissing,

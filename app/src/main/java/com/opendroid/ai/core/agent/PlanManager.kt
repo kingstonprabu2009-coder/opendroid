@@ -142,6 +142,44 @@ class PlanManager @Inject constructor(
         }
     }
 
+    /**
+     * Reconciles plans left RUNNING by process death. A RUNNING action may already have
+     * produced an external side effect, so startup must never replay it automatically.
+     * The whole interrupted plan is failed with explicit uncertainty recorded on its steps.
+     */
+    suspend fun recoverInterruptedPlans(): Int {
+        val interrupted = planRepository.getAllPlansSnapshot().filter { it.status == PlanStatus.RUNNING }
+        var recovered = 0
+        for (stored in interrupted) {
+            mutex.withLock {
+                // Re-read before writing so a concurrently completed plan is never downgraded.
+                val latest = planRepository.getPlanById(stored.planId) ?: return@withLock
+                if (latest.status != PlanStatus.RUNNING) return@withLock
+                val recoveredSteps = latest.steps.map { step ->
+                    when (step.status) {
+                        StepStatus.RUNNING -> step.copy(
+                            status = StepStatus.FAILED,
+                            error = "App stopped before the result was confirmed. This action was not retried to prevent a duplicate side effect."
+                        )
+                        StepStatus.PENDING -> step.copy(
+                            status = StepStatus.FAILED,
+                            error = "Not executed because the task was interrupted before completion."
+                        )
+                        else -> step
+                    }
+                }
+                val failed = PlanPrivacy.redactPlan(latest.copy(steps = recoveredSteps, status = PlanStatus.FAILED))
+                planRepository.savePlan(failed)
+                if (_currentPlan.value?.planId == failed.planId) {
+                    _currentPlan.value = failed
+                    workingMemory.activePlan = null
+                }
+                recovered++
+            }
+        }
+        return recovered
+    }
+
     suspend fun loadPlan(planId: String): Boolean {
         val plan = planRepository.getPlanById(planId) ?: return false
         mutex.withLock {

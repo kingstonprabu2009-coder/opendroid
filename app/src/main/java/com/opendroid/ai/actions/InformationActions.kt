@@ -37,7 +37,7 @@ class InformationActions @Inject constructor() {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)
-                ActionResult(true, "Here's what I found for '$query'!", null)
+                ActionResult(true, "Opened a browser search for '$query'. JARVIS has not read or verified the search results yet.", null)
             } catch (e: Exception) {
                 Log.e("WebSearch", "Search failed: ${e.localizedMessage}")
                 ActionResult(false, null, "Couldn't search right now. Try again?")
@@ -129,7 +129,7 @@ class InformationActions @Inject constructor() {
                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 }
                 context.startActivity(intent)
-                ActionResult(true, "Here's the latest on '$topic'!", null)
+                ActionResult(true, "Opened a news search for '$topic'. JARVIS has not read or verified the articles yet.", null)
             } catch (e: Exception) {
                 Log.e("GetNews", "News failed: ${e.localizedMessage}")
                 ActionResult(false, null, "Couldn't fetch the news right now.")

@@ -385,7 +385,7 @@ class LiteRTLMProvider @Inject constructor(
         return result
     }
 
-    // ── Prompt building (shared with GemmaProvider pattern) ─────────────
+    // ── Prompt building (shared prompt budgeting pattern) ─────────────
 
     private fun buildPrompt(
         systemPrompt: String,

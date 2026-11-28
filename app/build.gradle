@@ -218,6 +218,10 @@ dependencies {
     // bump this build has not taken; 1.18.0 stays until compileSdk moves to 37.
     implementation 'androidx.core:core-ktx:1.18.0'
     implementation 'androidx.documentfile:documentfile:1.0.1'
+    // Native timeline editing: exact clip trims, multi-asset composition, effects and MP4 export.
+    implementation 'androidx.media3:media3-common:1.11.1'
+    implementation 'androidx.media3:media3-effect:1.11.1'
+    implementation 'androidx.media3:media3-transformer:1.11.1'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.8.7'
     implementation 'androidx.lifecycle:lifecycle-viewmodel-compose:2.8.7'
     implementation 'androidx.activity:activity-compose:1.13.0'
@@ -273,9 +277,6 @@ dependencies {
 
     // Lottie animations
     implementation 'com.airbnb.android:lottie-compose:6.3.0'
-
-    // Google ML Kit GenAI Prompt API (Android AI Core)
-    implementation 'com.google.mlkit:genai-prompt:1.0.0-beta2'
 
     // LiteRT-LM: On-device LLM inference fallback (no AI Core dependency)
     implementation 'com.google.ai.edge.litertlm:litertlm-android:0.14.0'

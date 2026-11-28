@@ -41,26 +41,6 @@ class LLMErrorMapperTest {
     }
 
     @Test
-    fun `Gemini invalid key 400 and context 5xx use dialect evidence instead of status alone`() {
-        val invalidKey = LLMErrorMapper.fromHttpFailure(
-            provider = ProviderErrorDetail.Provider.GEMINI,
-            model = "gemini-2.0-flash",
-            httpStatus = 400,
-            rawBody = """{"error":{"status":"INVALID_ARGUMENT","message":"API key not valid"}}"""
-        )
-        val tooLong = LLMErrorMapper.fromHttpFailure(
-            provider = ProviderErrorDetail.Provider.GEMINI,
-            model = "gemini-2.0-flash",
-            httpStatus = 504,
-            rawBody = """{"error":{"status":"DEADLINE_EXCEEDED","message":"input context length exceeded"}}"""
-        )
-
-        assertEquals(LLMError.AuthInvalid, invalidKey.error)
-        assertEquals(LLMError.RequestInvalid, tooLong.error)
-        assertFalse(tooLong.retryable)
-    }
-
-    @Test
     fun `retry after accepts fractional seconds and Go duration syntax`() {
         val fractional = LLMErrorMapper.fromHttpFailure(
             provider = ProviderErrorDetail.Provider.OPENAI,

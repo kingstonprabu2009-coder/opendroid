@@ -5,11 +5,21 @@ import com.opendroid.ai.data.models.selectedModelFor
 import com.opendroid.ai.data.models.withActiveProvider
 import com.opendroid.ai.data.models.withSelectedModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProviderCatalogTest {
+
+    @Test
+    fun `only JARVIS Cloud can be constructed as an active brain provider`() {
+        assertTrue(isFirstPartyBrainProvider("JARVIS Cloud"))
+        assertFalse(isFirstPartyBrainProvider("OpenAI"))
+        assertFalse(isFirstPartyBrainProvider("Groq"))
+        assertFalse(isFirstPartyBrainProvider("OpenRouter"))
+        assertFalse(isFirstPartyBrainProvider("Anthropic Claude"))
+    }
 
     @Test
     fun `catalog has one default for every stable provider`() {
@@ -52,8 +62,8 @@ class ProviderCatalogTest {
 
         assertEquals("gpt-4-turbo", legacy.selectedModelFor("OpenAI"))
         assertEquals(
-            ProviderCatalog.defaultModel("Google Gemini"),
-            legacy.selectedModelFor("Google Gemini")
+            ProviderCatalog.defaultModel("Mistral AI"),
+            legacy.selectedModelFor("Mistral AI")
         )
         assertNull(legacy.selectedModels)
     }
@@ -62,13 +72,13 @@ class ProviderCatalogTest {
     fun `switching providers restores remembered model without losing other pairs`() {
         val config = LLMConfig()
             .withSelectedModel("OpenAI", "o3-mini")
-            .withSelectedModel("Google Gemini", "gemini-1.5-pro")
+            .withSelectedModel("Mistral AI", "mistral-large-latest")
             .withActiveProvider("OpenAI")
-            .withActiveProvider("Google Gemini")
+            .withActiveProvider("Mistral AI")
 
-        assertEquals("gemini-1.5-pro", config.activeModel)
+        assertEquals("mistral-large-latest", config.activeModel)
         assertEquals("o3-mini", config.selectedModelFor("OpenAI"))
-        assertEquals("gemini-1.5-pro", config.selectedModelFor("Google Gemini"))
+        assertEquals("mistral-large-latest", config.selectedModelFor("Mistral AI"))
     }
 
     @Test
@@ -147,13 +157,13 @@ class ProviderCatalogTest {
             activeModel = "gpt-4o",
             selectedModels = mapOf(
                 "OpenAI" to "gpt-4o",
-                "Google Gemini" to "gemini-1.5-pro",
+                "Mistral AI" to "mistral-large-latest",
                 "Anthropic Claude" to ClaudeModelCatalog.defaultModelId
             )
         )
 
         assertEquals("gpt-4o", config.selectedModelFor("OpenAI"))
-        assertEquals("gemini-1.5-pro", config.selectedModelFor("Google Gemini"))
+        assertEquals("mistral-large-latest", config.selectedModelFor("Mistral AI"))
         assertEquals(ClaudeModelCatalog.defaultModelId, config.selectedModelFor("Anthropic Claude"))
         assertEquals(
             ProviderCatalog.defaultModel("Groq"),
