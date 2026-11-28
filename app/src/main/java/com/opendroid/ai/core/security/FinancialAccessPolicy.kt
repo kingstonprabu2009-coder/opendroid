@@ -47,7 +47,10 @@ object FinancialAccessPolicy {
         if (target.isNullOrBlank()) return false
         val normalized = target.lowercase(Locale.ROOT)
         val tokens = normalized.split(Regex("[^a-z0-9]+")).filter(String::isNotBlank)
-        return tokens.any { token -> blockedTargetTokens.any { token == it } } ||
+        // Match both standalone labels ("SBI") and combined brand labels ("MyBank").
+        // This is intentionally conservative: false positives are safer than opening a
+        // financial app through an alias or a package/app label variant.
+        return tokens.any { token -> blockedTargetTokens.any { blocked -> token == blocked || token.contains(blocked) } } ||
             normalized.contains("com.google.android.apps.nbu.paisa.user") ||
             normalized.contains("com.phonepe.app") ||
             normalized.contains("net.one97.paytm")
