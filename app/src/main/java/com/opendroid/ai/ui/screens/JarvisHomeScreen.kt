@@ -521,7 +521,7 @@ fun JarvisHomeScreen(
                                     style = Stroke(width = 2.4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
                                 )
                                 drawArc(
-                                    color = AccentPurple.copy(alpha = 0.56f),
+                                    color = Color(0xFFB388FF).copy(alpha = 0.56f),
                                     startAngle = -orbitAngle * 0.65f + 155f,
                                     sweepAngle = 42f,
                                     useCenter = false,
