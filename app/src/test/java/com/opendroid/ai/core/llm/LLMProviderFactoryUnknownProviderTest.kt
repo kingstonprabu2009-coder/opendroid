@@ -11,10 +11,8 @@ import com.opendroid.ai.core.security.CredentialStoreResult
 import com.opendroid.ai.core.security.ProviderCredentialId
 import com.opendroid.ai.core.security.ProviderCredentialRecoveryState
 import com.opendroid.ai.core.security.ProviderCredentialStore
-import com.opendroid.ai.data.models.ChatMessage
 import com.opendroid.ai.data.repository.SettingsRepository
 import java.nio.file.Files
-import javax.inject.Provider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -22,14 +20,11 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertTrue
 import org.junit.Test
 import okhttp3.OkHttpClient
 
 /** The saved provider setting must not bypass JARVIS's single online cloud gateway. */
 class LLMProviderFactoryUnknownProviderTest {
-
-    private var geminiRequests = 0
 
     @Test
     fun `an old or unknown saved provider is routed through JARVIS Cloud`() {
@@ -37,7 +32,6 @@ class LLMProviderFactoryUnknownProviderTest {
         val active = runBlocking { factory.getActiveProvider() }
 
         assertEquals("JARVIS Cloud", active.name)
-        assertEquals(0, geminiRequests)
     }
 
     @Test
@@ -47,7 +41,6 @@ class LLMProviderFactoryUnknownProviderTest {
 
         assertEquals(1, providers.size)
         assertEquals("JARVIS Cloud", providers.single().name)
-        assertEquals(0, geminiRequests)
     }
 
     @Test
@@ -57,7 +50,6 @@ class LLMProviderFactoryUnknownProviderTest {
 
         assertEquals("JARVIS Cloud", active.name)
         assertEquals(listOf("jarvis-cloud"), active.availableModels)
-        assertEquals(0, geminiRequests)
     }
 
     private fun newFactory(savedActiveProvider: String): LLMProviderFactory {
@@ -66,27 +58,9 @@ class LLMProviderFactoryUnknownProviderTest {
             settings.updateConfig { it.copy(activeProvider = savedActiveProvider) }
         }
         return LLMProviderFactory(
-            claudeProvider = unused("Claude"),
-            openAIProvider = unused("OpenAI"),
-            geminiProvider = Provider {
-                geminiRequests++
-                throw AssertionError("Direct Gemini must not be used by the cloud-only brain")
-            },
-            jarvisCloudProvider = Provider { JarvisCloudProvider(JarvisCloudSession(FixedKeyCredentialStore(), OkHttpClient())) },
-            mistralProvider = unused("Mistral"),
-            groqProvider = unused("Groq"),
-            ollamaProvider = unused("Ollama"),
-            openRouterProvider = unused("OpenRouter"),
-            togetherAIProvider = unused("Together"),
-            cohereProvider = unused("Cohere"),
-            deepSeekProvider = unused("DeepSeek"),
-            copilotProvider = unused("Copilot"),
-            opencodeGoProvider = unused("Opencode-Go"),
-            customOpenAIProvider = unused("Custom"),
-            gemmaProvider = unused("Gemma"),
-            liteRTLMProvider = unused("LiteRT-LM"),
-            hybridOnDeviceProvider = unused("Hybrid"),
-            llamaCppProvider = unused("Llama.cpp"),
+            jarvisCloudProvider = JarvisCloudProvider(
+                JarvisCloudSession(FixedKeyCredentialStore(), OkHttpClient())
+            ),
             settingsRepository = settings,
             onDeviceLatencyTracker = OnDeviceLatencyTracker(settings),
             actionDispatcher = dagger.Lazy<ActionDispatcher> { throw AssertionError("unused") },
@@ -94,9 +68,6 @@ class LLMProviderFactoryUnknownProviderTest {
             deviceStateProvider = DeviceStateProvider(ContextWrapper(null))
         )
     }
-
-    private fun <T> unused(name: String): Provider<T> =
-        Provider { throw AssertionError("$name must not be used") }
 
     private fun newSettingsRepository() = SettingsRepository(
         dataStore = PreferenceDataStoreFactory.create(
