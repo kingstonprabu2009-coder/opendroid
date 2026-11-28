@@ -87,6 +87,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.opendroid.ai.R
 import com.opendroid.ai.core.agent.AgentState
+import com.opendroid.ai.core.cloud.RemoteAppConfig
 import com.opendroid.ai.core.service.OpenDroidService
 import com.opendroid.ai.core.voice.VoiceSubtitles
 import com.opendroid.ai.core.voice.WakeWordDetector
@@ -130,6 +131,20 @@ fun JarvisHomeScreen(
     var mode by remember { mutableStateOf(JarvisMode.ORBIT) }
     var showSettings by remember { mutableStateOf(false) }
     val serviceOn by OpenDroidService.isRunning.collectAsState()
+    var remoteConfig by remember { mutableStateOf(RemoteAppConfig()) }
+
+    // Refresh server-controlled UI settings while JARVIS is open. Changes to
+    // Kotlin/native logic remain signed APK updates; no downloaded code is run.
+    LaunchedEffect(Unit) {
+        while (true) {
+            RemoteAppConfig.fetch()?.let { config ->
+                if (config.schemaVersion == 1 && config.configVersion >= remoteConfig.configVersion) {
+                    remoteConfig = config
+                }
+            }
+            kotlinx.coroutines.delay(5 * 60 * 1000L)
+        }
+    }
 
     // Jarvis stays switched on after you leave the app; reopening brings it back.
     LaunchedEffect(Unit) {
@@ -391,20 +406,20 @@ fun JarvisHomeScreen(
                     // Use a subtle idle pulse; faster motion is reserved for active voice work.
                     val pulse by animateFloatAsState(
                         targetValue = when {
-                            speaking -> 1.075f
+                            speaking -> remoteConfig.ui.orb.speakingScale.coerceIn(1f, 1.15f)
                             agentState is AgentState.Listening ||
                                 agentState is AgentState.Thinking ||
-                                agentState is AgentState.ExecutingPlan -> 1.06f
-                            serviceOn -> 1.025f
+                                agentState is AgentState.ExecutingPlan -> remoteConfig.ui.orb.activeScale.coerceIn(1f, 1.15f)
+                            serviceOn -> remoteConfig.ui.orb.idleScale.coerceIn(1f, 1.15f)
                             else -> 1f
                         },
                         animationSpec = if (active) {
                             infiniteRepeatable(
                                 animation = tween(
                                     durationMillis = when {
-                                        speaking -> 420
-                                        serviceOn && agentState is AgentState.Idle -> 2600
-                                        else -> 760
+                                        speaking -> remoteConfig.ui.orb.speakingDurationMs.coerceIn(250, 3000)
+                                        serviceOn && agentState is AgentState.Idle -> remoteConfig.ui.orb.idleDurationMs.coerceIn(500, 6000)
+                                        else -> remoteConfig.ui.orb.activeDurationMs.coerceIn(250, 3000)
                                     },
                                     easing = LinearEasing
                                 ),

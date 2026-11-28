@@ -233,6 +233,30 @@ export default {
       }});
     }
     if (requestOrigin && !corsOrigin) return json({ error: "origin_not_allowed" }, 403);
+    // Public, non-secret, server-driven app settings. Native executable code is
+    // never downloaded or evaluated; only validated presentation/feature values
+    // are remotely configurable without an APK update.
+    if (request.method === "GET" && url.pathname === "/app-config") {
+      return json({
+        schemaVersion: 1,
+        configVersion: 1,
+        minimumBuild: 12,
+        features: {
+          remoteUiConfig: true,
+          liveConfigRefresh: true
+        },
+        ui: {
+          orb: {
+            speakingScale: 1.075,
+            activeScale: 1.06,
+            idleScale: 1.025,
+            speakingDurationMs: 420,
+            activeDurationMs: 760,
+            idleDurationMs: 2600
+          }
+        }
+      }, 200, corsOrigin);
+    }
     if (request.method === "GET" && url.pathname === "/health") {
       return json({ service: "jarvis-cloud-api", status: "ok", environment: env.JARVIS_ENV, auth: env.BETTER_AUTH_SECRET && env.BETTER_AUTH_URL ? "configured" : "not_configured", passwordRecovery: env.RESEND_API_KEY && env.RESEND_FROM_EMAIL ? "configured" : "not_configured", ai: env.AI ? "configured" : "not_configured", brain: "automatic_model_routing" }, 200, corsOrigin);
     }
