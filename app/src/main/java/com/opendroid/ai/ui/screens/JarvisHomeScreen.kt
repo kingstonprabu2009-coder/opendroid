@@ -381,21 +381,31 @@ fun JarvisHomeScreen(
                     val liveSpeaking by VoiceSubtitles.liveSpeaking.collectAsState()
                     // Live voice can speak while AgentState remains Listening; audio state wins.
                     val speaking = agentState is AgentState.Speaking || liveSpeaking
-                    val active = agentState is AgentState.Listening ||
+                    // Keep the orb visibly alive while the wake service is running.
+                    // ExecutingPlan must count as active or the orb appears frozen during tools.
+                    val active = serviceOn ||
+                        agentState is AgentState.Listening ||
                         agentState is AgentState.Thinking ||
+                        agentState is AgentState.ExecutingPlan ||
                         agentState is AgentState.Speaking || speaking
-                    // Animate continuously only while listening, thinking or speaking.
-                    // Idle Orbit settles to a still frame to avoid wasting battery.
+                    // Use a subtle idle pulse; faster motion is reserved for active voice work.
                     val pulse by animateFloatAsState(
                         targetValue = when {
                             speaking -> 1.075f
-                            active -> 1.06f
+                            agentState is AgentState.Listening ||
+                                agentState is AgentState.Thinking ||
+                                agentState is AgentState.ExecutingPlan -> 1.06f
+                            serviceOn -> 1.025f
                             else -> 1f
                         },
                         animationSpec = if (active) {
                             infiniteRepeatable(
                                 animation = tween(
-                                    durationMillis = if (speaking) 420 else 760,
+                                    durationMillis = when {
+                                        speaking -> 420
+                                        serviceOn && agentState is AgentState.Idle -> 2600
+                                        else -> 760
+                                    },
                                     easing = LinearEasing
                                 ),
                                 repeatMode = RepeatMode.Reverse
