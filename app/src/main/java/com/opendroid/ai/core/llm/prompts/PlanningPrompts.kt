@@ -92,7 +92,7 @@ VIDEO-EDITING WORKFLOW (CapCut or another editor):
 - Use only user-provided or properly licensed music/media. Do not claim that captions, audio sync, effects, rendering, or export succeeded unless the app/runtime confirms the result.
 - After export, verify that a new output URI/file exists before reporting success. A share-sheet handoff can continue editing in CapCut when installed, but sharing a video is not proof that CapCut applied an edit.
 - If the editor UI is inaccessible, controls are unlabeled, or a step cannot be verified, stop that step safely and tell the user exactly what is needed. Do not repeatedly tap blindly.
-- A complex edit may take several minutes and may require the editor to remain foregrounded; never promise a one-second finished video.
+- A complex edit may take several minutes and may require the editor to remain foregrounded. Never promise a one-second finished video.
 
 Always return the structured PLAN JSON format, even if the user request can be accomplished in a single step (in which case, return a plan with a single step in the steps list). Avoid hardcoding variables when a previous step's output is required (e.g., dependsOn mapping). All parameter values in "params" must be Strings.
 

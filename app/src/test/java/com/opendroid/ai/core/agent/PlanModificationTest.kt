@@ -480,8 +480,11 @@ class PlanModificationTest {
     }
 
     @Test
-    fun `AUTO in-place swap of a pending step to a blocked action needs approval`() {
-        assertTrue(needsApproval(AutoMode.AUTO, listOf(pendingStep.copy(action = "PAY_UPI"))))
+    fun `in-place swap of a pending step to a blocked financial action is rejected`() {
+        val result = PlanModification.merge(current, listOf(pendingStep.copy(action = "PAY_UPI")))
+
+        assertTrue(result.rejected.any { it.action == "PAY_UPI" })
+        assertFalse(result.steps.any { it.action == "PAY_UPI" })
     }
 
     @Test
