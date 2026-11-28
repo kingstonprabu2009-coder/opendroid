@@ -239,7 +239,7 @@ export default {
     if (request.method === "GET" && url.pathname === "/app-config") {
       return json({
         schemaVersion: 1,
-        configVersion: 1,
+        configVersion: 2,
         minimumBuild: 12,
         features: {
           remoteUiConfig: true,
@@ -247,12 +247,12 @@ export default {
         },
         ui: {
           orb: {
-            speakingScale: 1.075,
-            activeScale: 1.06,
-            idleScale: 1.025,
-            speakingDurationMs: 420,
-            activeDurationMs: 760,
-            idleDurationMs: 2600
+            speakingScale: 1.09,
+            activeScale: 1.045,
+            idleScale: 1.015,
+            speakingDurationMs: 520,
+            activeDurationMs: 920,
+            idleDurationMs: 3200
           }
         }
       }, 200, corsOrigin);
