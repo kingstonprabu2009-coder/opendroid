@@ -1,5 +1,6 @@
 package com.opendroid.ai.core.cloud
 
+import android.util.Log
 import com.google.gson.Gson
 import com.opendroid.ai.BuildConfig
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +35,7 @@ data class RemoteAppConfig(
     )
 
     companion object {
+        private const val TAG = "JarvisRemoteConfig"
         private val gson = Gson()
         private val client = OkHttpClient.Builder()
             .connectTimeout(4, TimeUnit.SECONDS)
@@ -43,19 +45,39 @@ data class RemoteAppConfig(
 
         suspend fun fetch(): RemoteAppConfig? = withContext(Dispatchers.IO) {
             val base = BuildConfig.JARVIS_CLOUD_BASE_URL.trimEnd('/')
-            if (!base.startsWith("https://")) return@withContext null
+            if (!base.startsWith("https://")) {
+                Log.w(TAG, "Fetch skipped: cloud base URL is not configured for HTTPS")
+                return@withContext null
+            }
             val request = Request.Builder()
                 .url("$base/app-config")
                 .header("Accept", "application/json")
                 .get()
                 .build()
-            runCatching {
+            try {
                 client.newCall(request).execute().use { response ->
-                    if (!response.isSuccessful) return@use null
+                    if (!response.isSuccessful) {
+                        Log.e(TAG, "Fetch failed: HTTP ${response.code}")
+                        return@use null
+                    }
                     val body = response.body.string()
-                    gson.fromJson(body, RemoteAppConfig::class.java)
+                    val config = runCatching {
+                        gson.fromJson(body, RemoteAppConfig::class.java)
+                    }.getOrElse { error ->
+                        Log.e(TAG, "Fetch failed: invalid JSON (${error.javaClass.simpleName})", error)
+                        return@use null
+                    }
+                    if (config == null || config.schemaVersion != 1) {
+                        Log.e(TAG, "Fetch rejected: missing config or unsupported schemaVersion=${config?.schemaVersion}")
+                        return@use null
+                    }
+                    Log.i(TAG, "Fetch success: HTTP ${response.code}, configVersion=${config.configVersion}")
+                    config
                 }
-            }.getOrNull()
+            } catch (error: Exception) {
+                Log.e(TAG, "Fetch failed: ${error.javaClass.simpleName}: ${error.message}", error)
+                null
+            }
         }
     }
 }

@@ -136,8 +136,11 @@ fun JarvisHomeScreen(
     LaunchedEffect(Unit) {
         while (true) {
             RemoteAppConfig.fetch()?.let { config ->
-                if (config.schemaVersion == 1 && config.configVersion >= remoteConfig.configVersion) {
+                if (config.configVersion >= remoteConfig.configVersion) {
                     remoteConfig = config
+                    android.util.Log.i("JarvisRemoteConfig", "Applied configVersion=${config.configVersion} to home UI")
+                } else {
+                    android.util.Log.w("JarvisRemoteConfig", "Ignored older configVersion=${config.configVersion}; current=${remoteConfig.configVersion}")
                 }
             }
             kotlinx.coroutines.delay(5 * 60 * 1000L)
