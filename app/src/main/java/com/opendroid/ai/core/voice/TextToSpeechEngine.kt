@@ -139,13 +139,15 @@ class TextToSpeechEngine(
 
     /** Picks an installed voice matching the chosen gender; null means keep the phone default. */
     private fun pickVoice(engine: TextToSpeech, lang: String): android.speech.tts.Voice? {
-        val choice = voiceChoice()
-        if (choice == "phone") return null
         val voices = try { engine.voices?.filter { it.locale.language == lang } } catch (e: Exception) { null }
             ?: return null
-        // A voice the user picked by ear in Settings wins (Google voices carry no gender in their names).
-        val saved = context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE).getString("voice_$lang", null)
+        // A concrete voice selected in Voice Control takes priority, even in Phone mode.
+        val prefs = context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE)
+        val saved = prefs.getString("voice_$lang", null)
+            ?: if (lang == "ta") prefs.getString("voice_ta", null) else null
         if (saved != null) voices.firstOrNull { it.name == saved }?.let { return it }
+        val choice = voiceChoice()
+        if (choice == "phone") return null
         fun isMale(v: android.speech.tts.Voice) = v.name.contains("male", true) && !v.name.contains("female", true)
         fun isFemale(v: android.speech.tts.Voice) = v.name.contains("female", true)
         return if (choice == "male") voices.firstOrNull { isMale(it) && !it.isNetworkConnectionRequired }
@@ -189,39 +191,36 @@ class TextToSpeechEngine(
      */
     fun speak(rawText: String, utteranceId: String = UUID.randomUUID().toString()): String {
         val text = cleanForSpeech(rawText)
-        // Convert only recognizable Tanglish for the local Tamil voice. English and
-        // already-Tamil replies keep their original wording.
         val localSpeechText = if (!hasTamil(text) && TanglishToTamil.looksTanglish(text)) {
             TanglishToTamil.convert(text)
-        } else {
-            text
-        }
+        } else text
         if (text.isBlank()) {
             mainHandler.post { onCompletionListener?.invoke(utteranceId) }
             return utteranceId
         }
         val speechGeneration = generation.get()
+        val provider = voiceProvider()
         scope.launch {
-            staleClipCleanup.join()
-            val config = settingsRepository.llmConfig.first()
-            val apiKey = config.elevenLabsApiKey
-            val voiceId = config.elevenLabsVoiceId.ifEmpty { "pNInz6obpgDQGcFmaJgB" }
-            val provider = voiceProvider()
-
-            if (provider == "elevenlabs" && apiKey.isBlank()) {
-                showProblem("ElevenLabs key missing; using phone voice for this reply.")
+            // The on-device engine is the fast path: do not wait for DataStore,
+            // stale network-clip cleanup, or an online voice service before speaking.
+            if (provider == "phone") {
+                speakOnDevice(localSpeechText, utteranceId, speechGeneration)
+                return@launch
             }
+
+            staleClipCleanup.join()
+            val config = if (provider == "elevenlabs") settingsRepository.llmConfig.first() else null
+            val apiKey = config?.elevenLabsApiKey.orEmpty()
+            val voiceId = config?.elevenLabsVoiceId.orEmpty().ifEmpty { "pNInz6obpgDQGcFmaJgB" }
 
             if (provider == "edge") {
                 try {
-                    val edgeVoice = selectedEdgeVoice(localSpeechText)
-                    val success = playEdgeTts(localSpeechText, edgeVoice, utteranceId, speechGeneration)
+                    val success = playEdgeTts(localSpeechText, selectedEdgeVoice(localSpeechText), utteranceId, speechGeneration)
                     if (success) return@launch
                 } catch (_: Exception) { }
                 if (generation.get() == speechGeneration) {
-                    showProblem("Edge Neural unavailable; using phone voice for this reply.")
+                    showProblem("Edge Neural unavailable; using fast on-device voice.")
                 } else return@launch
-                // Fall through to the built-in Android TTS fallback below.
             }
 
             if (provider == "elevenlabs" && apiKey.isNotEmpty()) {
@@ -230,45 +229,47 @@ class TextToSpeechEngine(
                     if (success) return@launch
                     showProblem("Selected ElevenLabs voice could not generate audio. Check its key and Voice ID, or choose another voice engine.")
                 } catch (_: Exception) {
-                    showProblem("ElevenLabs unavailable; using phone voice for this reply.")
+                    showProblem("ElevenLabs unavailable; using fast on-device voice.")
                 }
-                // Fall through to the built-in Android TTS fallback below.
+            } else if (provider == "elevenlabs") {
+                showProblem("ElevenLabs key missing; using fast on-device voice.")
             }
 
-            // Free on-device Phone TTS is the default and the reliable fallback.
-            // Local playback must run on the main thread. Not after stop(): a cancelled
-            // ElevenLabs fetch fails, and must not turn into local speech.
-            // The first reply often arrives before the engine is ready, so wait for it.
-            withTimeoutOrNull(1500) { ready.await() }
-            if (generation.get() == speechGeneration) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                    val engine = tts
-                    var started = false
-                    if (isInitialized && engine != null) {
-                        prepareVoiceFor(engine, localSpeechText)
-                        // Long replies are split at sentence ends and queued, so Android TTS
-                        // never cuts or drops a reply for being too long.
-                        val parts = splitForSpeech(localSpeechText, minOf(TextToSpeech.getMaxSpeechInputLength() - 200, 1500))
-                        started = true
-                        parts.forEachIndexed { i, part ->
-                            val last = i == parts.lastIndex
-                            val id = if (last) utteranceId else "$utteranceId$CHUNK_MARK$i"
-                            val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-                            if (engine.speak(part, mode, null, id) != TextToSpeech.SUCCESS) started = false
-                        }
-                    }
-                    val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
-                    if (started && audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) {
-                        showProblem("Media volume 0-la irukku. Volume ethunga.")
-                    }
-                    if (!started) {
-                        showProblem("Jarvis voice start aagala. Phone Text-to-speech settings check pannunga.")
-                        onCompletionListener?.invoke(utteranceId)
-                    }
-                }
-            }
+            speakOnDevice(localSpeechText, utteranceId, speechGeneration)
         }
         return utteranceId
+    }
+
+    /** Fast, credit-free on-device speech path shared by the default and network fallbacks. */
+    private suspend fun speakOnDevice(text: String, utteranceId: String, speechGeneration: Long) {
+        withTimeoutOrNull(1500) { ready.await() }
+        if (generation.get() != speechGeneration) return
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+            if (generation.get() != speechGeneration) return@withContext
+            val engine = tts
+            var started = false
+            if (isInitialized && engine != null) {
+                prepareVoiceFor(engine, text)
+                val prefs = context.getSharedPreferences("jarvis_voice", Context.MODE_PRIVATE)
+                engine.setSpeechRate(prefs.getFloat("speech_rate", 1.15f).coerceIn(0.8f, 1.5f))
+                val parts = splitForSpeech(text, minOf(TextToSpeech.getMaxSpeechInputLength() - 200, 1500))
+                started = true
+                parts.forEachIndexed { i, part ->
+                    val last = i == parts.lastIndex
+                    val id = if (last) utteranceId else "$utteranceId$CHUNK_MARK$i"
+                    val mode = if (i == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
+                    if (engine.speak(part, mode, null, id) != TextToSpeech.SUCCESS) started = false
+                }
+            }
+            val audio = context.getSystemService(Context.AUDIO_SERVICE) as android.media.AudioManager
+            if (started && audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC) == 0) {
+                showProblem("Media volume 0-la irukku. Volume ethunga.")
+            }
+            if (!started) {
+                showProblem("Jarvis voice start aagala. Phone Text-to-speech settings check pannunga.")
+                onCompletionListener?.invoke(utteranceId)
+            }
+        }
     }
 
     private data class EdgeVoiceChoice(val id: String, val pitch: String = "+0Hz", val rate: String = "+0%")

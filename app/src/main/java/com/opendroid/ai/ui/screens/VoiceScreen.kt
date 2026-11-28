@@ -78,6 +78,9 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
     var provider by remember { mutableStateOf(prefs.getString("provider", "phone") ?: "phone") }
     var selectedVoiceId by remember { mutableStateOf(prefs.getString("edge_voice", "ta-IN-ValluvarNeural") ?: "ta-IN-ValluvarNeural") }
     var selectedPitch by remember { mutableStateOf(prefs.getString("edge_pitch", "+0Hz") ?: "+0Hz") }
+    var phoneVoiceOptions by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var selectedPhoneVoice by remember { mutableStateOf(prefs.getString("voice_ta", "") ?: "") }
+    var phoneVoiceMenuOpen by remember { mutableStateOf(false) }
     var menuOpen by remember { mutableStateOf(false) }
     var liveOn by remember { mutableStateOf(prefs.getBoolean("live_gemini", false)) }
     var batterySaver by remember { mutableStateOf(prefs.getBoolean("battery_saver", true)) }
@@ -90,6 +93,23 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
     var player by remember { mutableStateOf<MediaPlayer?>(null) }
     var phoneTts by remember { mutableStateOf<TextToSpeech?>(null) }
     var activeSample by remember { mutableStateOf<File?>(null) }
+
+    // Enumerate the actual Tamil voices installed on this phone. The picker never
+    // advertises voices that the active Android TTS engine cannot select.
+    DisposableEffect(context) {
+        var probe: TextToSpeech? = null
+        probe = TextToSpeech(context) { result ->
+            val engine = probe
+            if (result == TextToSpeech.SUCCESS && engine != null) {
+                runCatching { engine.setLanguage(Locale.forLanguageTag("ta-IN")) }
+                phoneVoiceOptions = engine.voices.orEmpty()
+                    .filter { it.locale.language == "ta" }
+                    .sortedBy { it.name }
+                    .map { voice -> voice.name to if (voice.isNetworkConnectionRequired) "Online" else "Offline" }
+            }
+        }
+        onDispose { runCatching { probe?.shutdown() } }
+    }
 
     DisposableEffect(Unit) {
         onDispose {
@@ -131,6 +151,10 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
                 val tts = engine
                 if (result == TextToSpeech.SUCCESS && tts != null) {
                     val lang = tts.setLanguage(Locale.forLanguageTag("ta-IN"))
+                    val savedPhoneVoice = prefs.getString("voice_ta", null)
+                    if (!savedPhoneVoice.isNullOrBlank()) {
+                        tts.voices?.firstOrNull { it.name == savedPhoneVoice }?.let { tts.setVoice(it) }
+                    }
                     if (lang == TextToSpeech.LANG_MISSING_DATA || lang == TextToSpeech.LANG_NOT_SUPPORTED) {
                         status = "Tamil voice data is missing. Install Tamil voice data in Android Text-to-speech settings."
                         testing = false
@@ -219,6 +243,34 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
                             Switch(checked = provider == id, onCheckedChange = { checked -> if (checked) { provider = id; prefs.edit().putString("provider", id).apply() } })
                         }
                     }
+                    if (provider == "phone") {
+                        Text("Installed Tamil voice", color = TextSecondary, fontSize = 12.sp)
+                        androidx.compose.foundation.layout.Box {
+                            OutlinedButton(onClick = { phoneVoiceMenuOpen = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(phoneVoiceOptions.firstOrNull { it.first == selectedPhoneVoice }?.first
+                                    ?: if (selectedPhoneVoice.isBlank()) "Use phone default voice" else selectedPhoneVoice)
+                            }
+                            DropdownMenu(expanded = phoneVoiceMenuOpen, onDismissRequest = { phoneVoiceMenuOpen = false }) {
+                                DropdownMenuItem(text = { Text("Use phone default voice") }, onClick = {
+                                    selectedPhoneVoice = ""
+                                    prefs.edit().remove("voice_ta").apply()
+                                    phoneVoiceMenuOpen = false
+                                })
+                                phoneVoiceOptions.forEach { (voiceName, availability) ->
+                                    DropdownMenuItem(text = { Text("$voiceName · $availability") }, onClick = {
+                                        selectedPhoneVoice = voiceName
+                                        prefs.edit().putString("voice_ta", voiceName).apply()
+                                        provider = "phone"
+                                        prefs.edit().putString("provider", "phone").apply()
+                                        phoneVoiceMenuOpen = false
+                                    })
+                                }
+                            }
+                        }
+                        Text(if (phoneVoiceOptions.isEmpty()) "No installed Tamil voice found yet. Install Tamil voice data in Android Text-to-speech settings."
+                            else "These are the Tamil voices actually installed on this phone. Offline voices need no API credits.",
+                            color = TextSecondary, fontSize = 10.sp)
+                    }
                     if (provider == "edge") {
                         Text("Tamil neural voice", color = TextSecondary, fontSize = 12.sp)
                         androidx.compose.foundation.layout.Box {
@@ -236,7 +288,7 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
                                 }
                             }
                         }
-                        Text("Eight named regional voices + two pitch styles. Edge Neural needs internet and is an unofficial service; availability can change.", color = TextSecondary, fontSize = 10.sp)
+                        Text("Regional Edge voices need internet. This is an unofficial online service, not an included GitHub model; availability can change. Phone voices are the no-credit local option.", color = TextSecondary, fontSize = 10.sp)
                     }
                     if (provider == "elevenlabs") {
                         OutlinedTextField(value = config.elevenLabsApiKey, onValueChange = viewModel::updateElevenLabsApiKey,
