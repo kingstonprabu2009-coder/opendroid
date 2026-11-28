@@ -713,7 +713,6 @@ class OpenDroidService : Service() {
         } catch (e: Exception) {
         }
         wakeLock = null
-        live?.stop()
         serviceScope.cancel()
         if (!foregroundStarted) return
         mcpServer.stop()
