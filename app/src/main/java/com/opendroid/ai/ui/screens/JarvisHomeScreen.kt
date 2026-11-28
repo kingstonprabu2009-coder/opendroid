@@ -252,6 +252,14 @@ fun JarvisHomeScreen(
                             fontWeight = FontWeight.SemiBold,
                             letterSpacing = 2.1.sp
                         )
+                        Text(
+                            text = "MADE BY KINGSTON",
+                            color = AccentCyan,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Black,
+                            fontFamily = FontFamily.SansSerif,
+                            letterSpacing = 2.0.sp
+                        )
                     }
                 }
 

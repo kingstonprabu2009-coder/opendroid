@@ -136,6 +136,49 @@ fun AboutScreen(
                             color = TextSecondary,
                             fontFamily = FontFamily.Monospace
                         )
+
+                        Spacer(modifier = Modifier.height(18.dp))
+
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    Brush.horizontalGradient(
+                                        listOf(
+                                            AccentCyan.copy(alpha = 0.10f),
+                                            AccentPurple.copy(alpha = 0.16f),
+                                            AccentCyan.copy(alpha = 0.10f)
+                                        )
+                                    )
+                                )
+                                .border(
+                                    1.dp,
+                                    Brush.horizontalGradient(
+                                        listOf(AccentCyan.copy(alpha = 0.55f), AccentPurple.copy(alpha = 0.55f))
+                                    ),
+                                    RoundedCornerShape(12.dp)
+                                )
+                                .padding(horizontal = 22.dp, vertical = 12.dp)
+                        ) {
+                            Text(
+                                text = "MADE BY",
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace,
+                                color = TextSecondary,
+                                letterSpacing = 3.sp
+                            )
+                            Spacer(modifier = Modifier.height(3.dp))
+                            Text(
+                                text = "KINGSTON",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                fontFamily = FontFamily.SansSerif,
+                                color = AccentCyan,
+                                letterSpacing = 3.2.sp
+                            )
+                        }
                     }
                 }
             }
