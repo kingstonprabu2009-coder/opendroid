@@ -371,7 +371,7 @@ class OpenDroidService : Service() {
         )
         "read_screen" -> {
             val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
-            if (svc == null) "FAILED: Accessibility is off" else svc.getScreenText().take(1800).ifBlank { "Screen has no readable text" }
+            if (svc == null) "FAILED: Accessibility is off" else svc.getScreenLayout().take(3600).ifBlank { "Screen has no accessible labels or bounds" }
         }
         "tap_text" -> {
             val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
@@ -389,6 +389,63 @@ class OpenDroidService : Service() {
             val ok = svc?.performScroll(args.optString("direction").lowercase() != "up") == true
             delay(600)
             if (svc == null) "FAILED: Accessibility is off" else if (ok) "SUCCESS: scrolled" else "FAILED: nothing to scroll"
+        }
+        "swipe_screen" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+            val ok = svc?.swipeCoordinates(
+                args.optDouble("start_x", -1.0).toFloat(),
+                args.optDouble("start_y", -1.0).toFloat(),
+                args.optDouble("end_x", -1.0).toFloat(),
+                args.optDouble("end_y", -1.0).toFloat(),
+                args.optLong("duration_ms", 350L)
+            ) == true
+            delay(450)
+            if (svc == null) "FAILED: Accessibility is off" else if (ok) "SUCCESS: swipe gesture dispatched; read_screen to verify" else "FAILED: gesture rejected; check coordinates and accessibility"
+        }
+        "tap_screen" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+            val ok = svc?.clickCoordinates(
+                args.optDouble("x", -1.0).toFloat(),
+                args.optDouble("y", -1.0).toFloat()
+            ) == true
+            delay(250)
+            if (svc == null) "FAILED: Accessibility is off" else if (ok) "SUCCESS: coordinate tap dispatched; read_screen to verify" else "FAILED: tap rejected; check screen coordinates"
+        }
+        "batch_screen_actions" -> {
+            val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()
+                ?: return "FAILED: Accessibility is off"
+            val actions = args.optJSONArray("actions") ?: return "FAILED: actions array missing"
+            if (actions.length() !in 1..6) return "FAILED: batch must contain 1 to 6 actions"
+            val completed = mutableListOf<String>()
+            var failure: String? = null
+            for (i in 0 until actions.length()) {
+                val item = actions.optJSONObject(i)
+                if (item == null) { failure = "action ${i + 1} is not an object"; break }
+                val action = item.optString("action").lowercase()
+                val ok = when (action) {
+                    "tap_text" -> svc.tapByText(item.optString("label"))
+                    "tap_screen" -> svc.clickCoordinates(item.optDouble("x", -1.0).toFloat(), item.optDouble("y", -1.0).toFloat())
+                    "type_text" -> svc.typeIntoFocused(item.optString("text"))
+                    "scroll_screen" -> svc.performScroll(item.optString("direction").lowercase() != "up")
+                    "swipe_screen" -> svc.swipeCoordinates(
+                        item.optDouble("start_x", -1.0).toFloat(), item.optDouble("start_y", -1.0).toFloat(),
+                        item.optDouble("end_x", -1.0).toFloat(), item.optDouble("end_y", -1.0).toFloat(),
+                        item.optLong("duration_ms", 350L)
+                    )
+                    else -> false
+                }
+                if (!ok) { failure = "action ${i + 1} ($action) failed; remaining actions were not run"; break }
+                delay(when (action) { "swipe_screen" -> item.optLong("duration_ms", 350L).coerceIn(80L, 1500L) + 180L; "type_text" -> 120L; else -> 300L })
+                val screen = svc.getScreenText().take(700)
+                val expected = item.optString("expect_text").trim()
+                if (expected.isNotEmpty() && !screen.contains(expected, ignoreCase = true)) {
+                    failure = "action ${i + 1} ran, but expected screen text '$expected' was not found; remaining actions stopped. Visible text: $screen"
+                    break
+                }
+                completed.add("${i + 1}:$action=ok")
+            }
+            if (failure != null) "FAILED: $failure; completed=${completed.joinToString(",")}" else
+                "SUCCESS: batch completed (${completed.joinToString(",")}); final screen layout: ${svc.getScreenLayout().take(1800)}"
         }
         "press_key" -> {
             val svc = com.opendroid.ai.accessibility.OpenDroidAccessibilityService.getInstance()

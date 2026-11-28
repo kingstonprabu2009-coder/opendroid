@@ -40,6 +40,37 @@ class AccessibilityNodeTraversal @Inject constructor() {
         return sb.toString()
     }
 
+    /** Returns visible labels with pixel bounds so voice automation can target unlabeled controls safely. */
+    fun screenLayout(root: AccessibilityNodeInfo?): String {
+        if (root == null) return ""
+        val sb = StringBuilder()
+        collectLayout(root, sb)
+        return sb.toString()
+    }
+
+    private fun collectLayout(node: AccessibilityNodeInfo, sb: StringBuilder) {
+        if (node.isVisibleToUser) {
+            val label = node.text?.toString()?.takeIf { it.isNotBlank() }
+                ?: node.contentDescription?.toString()?.takeIf { it.isNotBlank() }
+            if (label != null) {
+                val bounds = android.graphics.Rect()
+                node.getBoundsInScreen(bounds)
+                if (!bounds.isEmpty) {
+                    sb.append(label.replace('\n', ' ').take(100))
+                        .append(" [x=").append(bounds.left).append(" y=").append(bounds.top)
+                        .append(" w=").append(bounds.width()).append(" h=").append(bounds.height())
+                        .append(if (node.isClickable) " clickable" else "")
+                        .append("]\n")
+                }
+            }
+        }
+        for (i in 0 until node.childCount) {
+            val child = node.getChild(i) ?: continue
+            collectLayout(child, sb)
+            child.recycle()
+        }
+    }
+
     private fun collectText(node: AccessibilityNodeInfo, sb: StringBuilder) {
         val nodeText = node.text?.toString()
         val contentDesc = node.contentDescription?.toString()

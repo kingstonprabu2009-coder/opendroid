@@ -169,13 +169,43 @@ class GeminiLiveClient(
             listOf("query"))
         val openAppTool = tool("open_app", "Open an installed app by name. Returns SUCCESS or FAILED.",
             JSONObject().put("app_name", prop("STRING", "App name, e.g. WhatsApp.")), listOf("app_name"))
-        val readScreenTool = tool("read_screen", "Read the text and buttons currently visible on the phone screen. Use it before and after every tap to check what happened.", JSONObject(), emptyList())
+        val readScreenTool = tool("read_screen", "Read visible labels and their pixel bounds on the phone screen. Use the returned x/y/w/h bounds to target controls; use it before and after actions.", JSONObject(), emptyList())
         val tapTool = tool("tap_text", "Tap the button or item on screen whose label contains this text. Returns SUCCESS or FAILED.",
             JSONObject().put("label", prop("STRING", "Text or description of the control to tap.")), listOf("label"))
         val typeTool = tool("type_text", "Type text into the text field on screen. Returns SUCCESS or FAILED.",
             JSONObject().put("text", prop("STRING", "Text to type.")), listOf("text"))
         val scrollTool = tool("scroll_screen", "Scroll the screen down or up.",
             JSONObject().put("direction", prop("STRING", "down or up")), listOf("direction"))
+        val swipeTool = tool("swipe_screen", "Swipe or drag on the current app screen. For CapCut, use this to drag timeline clips or trim handles. Coordinates are pixels from the top-left; read the screen first and never guess coordinates when the UI is unclear.",
+            JSONObject()
+                .put("start_x", prop("NUMBER", "Starting horizontal screen coordinate in pixels."))
+                .put("start_y", prop("NUMBER", "Starting vertical screen coordinate in pixels."))
+                .put("end_x", prop("NUMBER", "Ending horizontal screen coordinate in pixels."))
+                .put("end_y", prop("NUMBER", "Ending vertical screen coordinate in pixels."))
+                .put("duration_ms", prop("INTEGER", "Gesture duration from 80 to 1500 milliseconds; default 350.")),
+            listOf("start_x", "start_y", "end_x", "end_y"))
+        val tapScreenTool = tool("tap_screen", "Tap a precise screen coordinate. Use only coordinates observed from the latest screen screenshot/read; coordinates are pixels from top-left.",
+            JSONObject()
+                .put("x", prop("NUMBER", "Horizontal screen coordinate in pixels."))
+                .put("y", prop("NUMBER", "Vertical screen coordinate in pixels.")),
+            listOf("x", "y"))
+        val batchItemProperties = JSONObject()
+            .put("action", prop("STRING", "One of tap_text, tap_screen, type_text, scroll_screen, swipe_screen."))
+            .put("label", prop("STRING", "Visible label for tap_text."))
+            .put("text", prop("STRING", "Text for type_text."))
+            .put("direction", prop("STRING", "up or down for scroll_screen."))
+            .put("x", prop("NUMBER", "Tap x coordinate in pixels."))
+            .put("y", prop("NUMBER", "Tap y coordinate in pixels."))
+            .put("start_x", prop("NUMBER", "Swipe start x coordinate."))
+            .put("start_y", prop("NUMBER", "Swipe start y coordinate."))
+            .put("end_x", prop("NUMBER", "Swipe end x coordinate."))
+            .put("end_y", prop("NUMBER", "Swipe end y coordinate."))
+            .put("duration_ms", prop("INTEGER", "Swipe duration in milliseconds."))
+            .put("expect_text", prop("STRING", "Optional text that must appear after this action; aborts the batch if absent."))
+        val batchItem = JSONObject().put("type", "OBJECT").put("properties", batchItemProperties)
+            .put("required", JSONArray().put("action"))
+        val batchTool = tool("batch_screen_actions", "Execute 1 to 6 ordered screen actions in one call to reduce voice round trips. Only use actions based on the latest observed screen. Each action is checked; optional expect_text aborts if the expected screen text is absent. Stops at first failure.",
+            JSONObject().put("actions", JSONObject().put("type", "ARRAY").put("items", batchItem)), listOf("actions"))
         val navTool = tool("press_key", "Press a phone key: back or home.",
             JSONObject().put("key", prop("STRING", "back or home")), listOf("key"))
         val rememberTool = tool("remember", "Save a short lesson or fact to long-term memory so next time you do it right. Use when the user teaches or corrects you, or you find a way that works.",
@@ -196,7 +226,7 @@ class GeminiLiveClient(
             .put("inputAudioTranscription", JSONObject())
             .put("outputAudioTranscription", JSONObject())
             .put("systemInstruction", JSONObject().put("parts", JSONArray().put(JSONObject().put("text", SYSTEM + memoryHeld))))
-            .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(phoneTool).put(youtubeTool).put(openAppTool).put(readScreenTool).put(tapTool).put(typeTool).put(scrollTool).put(navTool).put(rememberTool).put(stopTool))))
+            .put("tools", JSONArray().put(JSONObject().put("functionDeclarations", JSONArray().put(phoneTool).put(youtubeTool).put(openAppTool).put(readScreenTool).put(tapTool).put(tapScreenTool).put(typeTool).put(scrollTool).put(swipeTool).put(batchTool).put(navTool).put(rememberTool).put(stopTool))))
         // Reply fast: treat ~0.6 s of silence as the end of the user's turn.
         setup.put("realtimeInputConfig", JSONObject().put("automaticActivityDetection", JSONObject()
             .put("startOfSpeechSensitivity", "START_SENSITIVITY_HIGH")
@@ -367,7 +397,7 @@ class GeminiLiveClient(
             "Keep answers short, one or two sentences, and stop when the user speaks. " +
             "For YouTube use play_youtube, for opening apps use open_app, for other phone jobs use run_phone_task. " +
             "NEVER say a phone task is done unless the tool result starts with SUCCESS. If it says FAILED, tell the user plainly what failed. " +
-            "To work in any other app (for example CapCut video editing): open_app, then repeat read_screen, tap_text / type_text / scroll_screen, and read_screen again to check each step worked. " +
+            "For CapCut editing, use the existing CapCut app only. Read the latest screen layout before choosing controls; it includes visible labels and pixel bounds. Use those observed bounds for taps/drags. Use batch_screen_actions for short ordered sequences (up to 6 actions) to reduce latency; use tap_text for labelled controls and tap_screen/swipe_screen only with coordinates observed from the latest screenshot. Use expect_text when the next screen state is predictable. Stop on any failed action, re-read the screen, and never invent controls, coordinates, export completion, or claim an edit succeeded without verification. Never switch to a newly built editor app. " +
             "When the user teaches or corrects you, call remember with one short sentence. "
     }
 }

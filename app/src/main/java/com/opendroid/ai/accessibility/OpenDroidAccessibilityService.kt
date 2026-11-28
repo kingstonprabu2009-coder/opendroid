@@ -320,6 +320,9 @@ class OpenDroidAccessibilityService : AccessibilityService() {
     // --- Gesture Automation Methods (Coordinate Taps) ---
 
     fun clickCoordinates(x: Float, y: Float): Boolean {
+        val width = resources.displayMetrics.widthPixels.toFloat()
+        val height = resources.displayMetrics.heightPixels.toFloat()
+        if (!x.isFinite() || !y.isFinite() || x < 0f || y < 0f || x > width || y > height) return false
         val path = Path().apply {
             moveTo(x, y)
         }
@@ -331,6 +334,21 @@ class OpenDroidAccessibilityService : AccessibilityService() {
         return dispatchGesture(gesture, null, null)
     }
 
+    /** Performs a controlled swipe/drag gesture. Used for timeline clips and trim handles in editors. */
+    fun swipeCoordinates(startX: Float, startY: Float, endX: Float, endY: Float, durationMs: Long = 350L): Boolean {
+        val width = resources.displayMetrics.widthPixels.toFloat()
+        val height = resources.displayMetrics.heightPixels.toFloat()
+        if (!startX.isFinite() || !startY.isFinite() || !endX.isFinite() || !endY.isFinite()) return false
+        if (startX < 0f || startY < 0f || endX < 0f || endY < 0f || startX > width || endX > width || startY > height || endY > height) return false
+        val path = Path().apply {
+            moveTo(startX, startY)
+            lineTo(endX, endY)
+        }
+        val stroke = GestureDescription.StrokeDescription(path, 0, durationMs.coerceIn(80L, 1500L))
+        val gesture = GestureDescription.Builder().addStroke(stroke).build()
+        return dispatchGesture(gesture, null, null)
+    }
+
     // --- Screen Text Extraction ---
 
     fun getScreenText(): String {
@@ -338,6 +356,13 @@ class OpenDroidAccessibilityService : AccessibilityService() {
         val text = nodeTraversal.screenText(rootNode)
         rootNode.recycle()
         return text
+    }
+
+    fun getScreenLayout(): String {
+        val rootNode = rootInActiveWindow ?: return ""
+        val layout = nodeTraversal.screenLayout(rootNode)
+        rootNode.recycle()
+        return layout
     }
 
     suspend fun takeScreenshotAndEncode(): String? {
