@@ -190,7 +190,11 @@ fun VoiceScreen(viewModel: SettingsViewModel, modifier: Modifier = Modifier) {
             }
             if (success && file.length() > 0) playFile(file) else {
                 file.delete(); testing = false
-                status = if (provider == "elevenlabs" && config.elevenLabsApiKey.isBlank()) "Add your ElevenLabs API key below first." else "Voice service unavailable. Check internet/API key and try again."
+                status = when {
+                    provider == "elevenlabs" && config.elevenLabsApiKey.isBlank() -> "Add your ElevenLabs API key below first."
+                    provider == "edge" -> "Edge Neural unavailable (" + (edgeClient.lastFailureReason() ?: "no audio received") + "). Check connection; JARVIS replies still fall back to free Phone TTS."
+                    else -> "Voice service unavailable. Check internet/API key and try again."
+                }
             }
         }
     }

@@ -26,6 +26,9 @@ import java.util.concurrent.atomic.AtomicBoolean
 class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
 
     @Volatile private var socket: WebSocket? = null
+    @Volatile private var failureReason: String? = null
+
+    fun lastFailureReason(): String? = failureReason
 
     /** Cancels a synthesis in progress. */
     fun cancel() {
@@ -34,9 +37,11 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
 
     /**
      * Writes an MP3 of [text] spoken by [voice] to [target].
-     * Blocks only its caller thread (up to 12 seconds). Call from Dispatchers.IO; returns false on failure.
+     * Receives audio frames over WebSocket and buffers the short utterance to a clip.
+     * Call from Dispatchers.IO; returns false on failure or a bounded 10-second timeout.
      */
     fun synthesize(text: String, voice: String, target: File, pitch: String = "+0Hz", rate: String = "+0%"): Boolean {
+        failureReason = null
         val done = CountDownLatch(1)
         val finished = AtomicBoolean(false)
         val out = FileOutputStream(target)
@@ -101,16 +106,21 @@ class EdgeTtsClient(private val client: OkHttpClient = OkHttpClient()) {
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    failureReason = response?.let { "HTTP " + it.code } ?: t.javaClass.simpleName
                     done.countDown()
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (!finished.get()) failureReason = "WebSocket closed (" + code + ")"
                     done.countDown()
                 }
             })
             socket = ws
-            val completed = done.await(2500, TimeUnit.MILLISECONDS)
-            if (!completed) ws.cancel()
+            val completed = done.await(10_000, TimeUnit.MILLISECONDS)
+            if (!completed) {
+                failureReason = "Timed out after 10 seconds"
+                ws.cancel()
+            }
             else try { ws.close(1000, null) } catch (_: Exception) {}
         } finally {
             socket = null

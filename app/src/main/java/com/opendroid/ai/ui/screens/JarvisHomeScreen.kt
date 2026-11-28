@@ -33,7 +33,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -66,7 +65,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -428,16 +426,6 @@ fun JarvisHomeScreen(
                         } else tween(500),
                         label = "orbPulse"
                     )
-                    val shake by animateFloatAsState(
-                        targetValue = if (speaking) 1f else 0f,
-                        animationSpec = if (speaking) {
-                            infiniteRepeatable(
-                                animation = tween(210, easing = LinearEasing),
-                                repeatMode = RepeatMode.Reverse
-                            )
-                        } else tween(140),
-                        label = "orbVoiceMotion"
-                    )
                     // Slow, lightweight orbital motion: decorative rings remain subtle while
                     // the central JARVIS mark changes state. Animation only runs on Live Voice.
                     val orbitAngle by animateFloatAsState(
@@ -481,8 +469,6 @@ fun JarvisHomeScreen(
                         agentState is AgentState.ExecutingPlan -> AccentCyan
                         else -> TextPrimary
                     }
-                    // 0..1, breathing slowly when idle and fast when active.
-                    val breath = (pulse - 1f) / 0.06f
                     val status = when {
                         speaking -> "SPEAKING"
                         agentState is AgentState.Listening -> "LISTENING"
@@ -492,7 +478,6 @@ fun JarvisHomeScreen(
                         else -> if (serviceOn) "WAKE WORD ACTIVE" else "SERVICE STOPPED"
                     }
 
-                    val orbitPurple = AccentPurple
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
@@ -500,115 +485,69 @@ fun JarvisHomeScreen(
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
+                        // Responsive, low-overdraw orb: it fits the available phone width
+                        // instead of forcing a 380dp surface beyond the screen edges.
                         Box(
-                            modifier = Modifier.size(380.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(292.dp),
                             contentAlignment = Alignment.Center
                         ) {
-                            // Light that starts exactly at the orb's outer ring and fades out.
-                            // No glow until Jarvis is switched ON.
                             Canvas(Modifier.fillMaxSize()) {
-                                val orb = 126.dp.toPx() * (if (active) pulse else 1f)
-                                val outer = size.minDimension / 2f
-                                val edge = orb / outer
-                                val strength = if (serviceOn) (if (active) 0.85f else 0.55f) + breath * 0.15f else 0.16f
-                                fun at(t: Float) = edge + (1f - edge) * t
+                                val radius = (size.minDimension / 2f - 10.dp.toPx()).coerceAtLeast(1f)
+                                val coreRadius = radius * 0.69f
+                                val ringColor = glowColor.copy(alpha = if (serviceOn) 0.54f else 0.20f)
                                 if (serviceOn) {
                                     drawCircle(
                                         brush = Brush.radialGradient(
-                                            0f to glowColor.copy(alpha = strength),
-                                            edge to glowColor.copy(alpha = strength),
-                                            at(0.12f) to glowColor.copy(alpha = strength * 0.85f),
-                                            at(0.35f) to glowColor.copy(alpha = strength * 0.55f),
-                                            at(0.65f) to glowColor.copy(alpha = strength * 0.22f),
+                                            0f to glowColor.copy(alpha = 0.22f),
+                                            coreRadius / radius to glowColor.copy(alpha = 0.12f),
                                             1f to Color.Transparent,
                                             center = center,
-                                            radius = outer
+                                            radius = radius
                                         ),
-                                        radius = outer
+                                        radius = radius
                                     )
                                 }
-                                val ringColor = glowColor.copy(alpha = if (serviceOn) 0.42f else 0.16f)
-                                val ringRadius = 150.dp.toPx()
-                                drawCircle(color = ringColor, radius = ringRadius, style = Stroke(width = 1.dp.toPx()))
-                                drawCircle(color = ringColor.copy(alpha = ringColor.alpha * 0.55f), radius = 166.dp.toPx(), style = Stroke(width = 0.7.dp.toPx()))
-                                // Layered HUD arcs add a premium, futuristic instrument-panel effect.
-                                val hudRadius = 142.dp.toPx()
+                                drawCircle(ringColor.copy(alpha = ringColor.alpha * 0.42f), radius * 0.96f, style = Stroke(1.dp.toPx()))
+                                drawCircle(ringColor, radius * 0.84f, style = Stroke(1.2.dp.toPx()))
                                 drawArc(
-                                    color = glowColor.copy(alpha = if (speaking) 0.9f else ringColor.alpha),
-                                    startAngle = orbitAngle - 28f,
-                                    sweepAngle = 76f,
+                                    color = glowColor.copy(alpha = if (speaking) 0.95f else 0.72f),
+                                    startAngle = orbitAngle - 48f,
+                                    sweepAngle = 92f,
                                     useCenter = false,
-                                    topLeft = Offset(center.x - hudRadius, center.y - hudRadius),
-                                    size = androidx.compose.ui.geometry.Size(hudRadius * 2f, hudRadius * 2f),
-                                    style = Stroke(width = 2.2.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
+                                    topLeft = Offset(center.x - radius * 0.84f, center.y - radius * 0.84f),
+                                    size = androidx.compose.ui.geometry.Size(radius * 1.68f, radius * 1.68f),
+                                    style = Stroke(width = 2.4.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
                                 )
                                 drawArc(
-                                    color = orbitPurple.copy(alpha = if (speaking) 0.72f else 0.22f),
-                                    startAngle = -orbitAngle * 0.72f + 142f,
-                                    sweepAngle = 38f,
+                                    color = AccentPurple.copy(alpha = 0.56f),
+                                    startAngle = -orbitAngle * 0.65f + 155f,
+                                    sweepAngle = 42f,
                                     useCenter = false,
-                                    topLeft = Offset(center.x - 160.dp.toPx(), center.y - 160.dp.toPx()),
-                                    size = androidx.compose.ui.geometry.Size(320.dp.toPx(), 320.dp.toPx()),
+                                    topLeft = Offset(center.x - radius * 0.96f, center.y - radius * 0.96f),
+                                    size = androidx.compose.ui.geometry.Size(radius * 1.92f, radius * 1.92f),
                                     style = Stroke(width = 1.5.dp.toPx(), cap = androidx.compose.ui.graphics.StrokeCap.Round)
                                 )
                                 val angle = Math.toRadians(orbitAngle.toDouble())
-                                val dotX = center.x + kotlin.math.cos(angle).toFloat() * ringRadius
-                                val dotY = center.y + kotlin.math.sin(angle).toFloat() * ringRadius
-                                drawCircle(color = glowColor.copy(alpha = if (serviceOn) 0.95f else 0.5f), radius = 3.2.dp.toPx(), center = Offset(dotX, dotY))
-                                val secondAngle = angle * -0.72 - 1.2
-                                val secondX = center.x + kotlin.math.cos(secondAngle).toFloat() * 166.dp.toPx()
-                                val secondY = center.y + kotlin.math.sin(secondAngle).toFloat() * 166.dp.toPx()
-                                drawCircle(color = orbitPurple.copy(alpha = if (serviceOn) 0.78f else 0.3f), radius = 2.2.dp.toPx(), center = Offset(secondX, secondY))
-                                // Voice-reactive energy particles radiate from the orbit while JARVIS speaks.
-                                if (speaking) {
-                                    for (i in 0 until 16) {
-                                        val particleAngle = angle + i * (Math.PI * 2.0 / 16.0)
-                                        val travel = 174.dp.toPx() + (sin(angle * 2.0 + i).toFloat() + 1f) * 15.dp.toPx()
-                                        val particleX = center.x + kotlin.math.cos(particleAngle).toFloat() * travel
-                                        val particleY = center.y + kotlin.math.sin(particleAngle).toFloat() * travel
-                                        val fade = 0.28f + ((sin(angle + i * 0.7).toFloat() + 1f) * 0.28f)
-                                        drawCircle(
-                                            color = if (i % 3 == 0) orbitPurple.copy(alpha = fade) else glowColor.copy(alpha = fade),
-                                            radius = if (i % 4 == 0) 2.4.dp.toPx() else 1.35.dp.toPx(),
-                                            center = Offset(particleX, particleY)
-                                        )
-                                    }
-                                }
-                            }
-                            // Only the ring art is shown; its black surround is clipped away
-                            // so it cannot hide the glow.
-                            Box(
-                                modifier = Modifier
-                                    .size(252.dp)
-                                    .graphicsLayer {
-                                        scaleX = pulse
-                                        scaleY = pulse
-                                        // Make the speaking vibration visible rather than sub-pixel.
-                                        translationX = if (speaking) shake * 6.dp.toPx() else 0f
-                                        translationY = if (speaking) shake * 2.5.dp.toPx() else 0f
-                                        rotationZ = if (speaking) shake * 1.6f else 0f
-                                    }
-                                    .clip(CircleShape),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Image(
-                                    painter = painterResource(R.drawable.jarvis_orb),
-                                    contentDescription = "Jarvis logo",
-                                    contentScale = ContentScale.Crop,
-                                    // Recolours the blue ring art to match the glow.
-                                    colorFilter = if (!serviceOn) null else ColorFilter.colorMatrix(
-                                        ColorMatrix(
-                                            floatArrayOf(
-                                                0.7f * (1f - glowColor.red), 0f, glowColor.red, 0f, 0f,
-                                                0.7f * (1f - glowColor.green), 0f, glowColor.green, 0f, 0f,
-                                                0.7f * (1f - glowColor.blue), 0f, glowColor.blue, 0f, 0f,
-                                                0f, 0f, 0f, 1f, 0f
-                                            )
-                                        )
-                                    ),
-                                    modifier = Modifier.requiredSize(304.dp)
+                                val dot = Offset(
+                                    center.x + kotlin.math.cos(angle).toFloat() * radius * 0.84f,
+                                    center.y + kotlin.math.sin(angle).toFloat() * radius * 0.84f
                                 )
+                                drawCircle(glowColor, 3.dp.toPx(), dot)
                             }
+                            Image(
+                                painter = painterResource(R.drawable.jarvis_orb),
+                                contentDescription = "JARVIS live orb",
+                                contentScale = ContentScale.Fit,
+                                colorFilter = if (!serviceOn) null else ColorFilter.tint(glowColor.copy(alpha = 0.88f)),
+                                modifier = Modifier
+                                    .size(224.dp)
+                                    .graphicsLayer {
+                                        scaleX = if (active) pulse else 1f
+                                        scaleY = if (active) pulse else 1f
+                                    }
+                            )
                         }
 
                         Text(
@@ -723,7 +662,7 @@ private fun VoiceStateVisualizer(
         label = "voiceVisualizerPhase"
     )
     Canvas(modifier = modifier.height(34.dp)) {
-        val count = 37
+        val count = 25
         val barWidth = 3.dp.toPx()
         val gap = (size.width - count * barWidth) / (count - 1)
         val centerY = size.height / 2f
